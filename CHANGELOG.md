@@ -29,6 +29,7 @@
 - SMS mailbox summary/list/query helpers
 - `client.sms.send()` using the normalized normal-SMS GSM7/UTF-16BE/timestamp wire contract and verified SMS-specific success fields
 - `client.sms.delete()` using the normalized single-ID request and verified deletion success fields
+- explicitly opt-in physical-router integration tests guarded by `NR2301_INTEGRATION=1`; the initial smoke suite is read-only and deliberately avoids high-sensitivity identity/Wi-Fi-key/SMS-content reads
 
 ### Deliberately deferred
 
@@ -37,5 +38,6 @@
 - semantic aliases for `statistics/get_conn_clients_info.request_type` are not invented until the exact raw request-type tokens are normalized in the public API
 - SMS draft-save and get-by-ID convenience helpers remain deferred until those full request objects are normalized as stable public contracts
 - independent Guest isolation is not exposed on ACIY.3 because the getter does not safely round-trip that value
+- write-level physical-router integration tests require a future, separate opt-in and explicit recovery prerequisites; they are not enabled by the read-only integration flag
 
 The SDK started from immutable `nr2301-api v0.1.0`; the newest normalized contracts track the API repository's `0.1.1.dev0` development state on `main`.
