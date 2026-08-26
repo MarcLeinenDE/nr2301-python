@@ -11,6 +11,9 @@
 - context-manager lifecycle
 - offline unit tests
 - GitHub Actions test workflow
-- first typed read-only namespace helper: `client.version.info()` and `client.version.magic_number()`
+- typed read-only `version` helpers
+- typed read-only mobile-network helpers
+- LAN/DHCP/DNS read helpers
+- `client.lan.set_dns()` and `client.lan.set_dns_auto()` with full-object preservation, disruptive-write recovery and exact DNS read-back verification
 
 The SDK is based on `nr2301-api v0.1.0`.
