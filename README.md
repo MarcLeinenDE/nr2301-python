@@ -2,7 +2,7 @@
 
 Unofficial Python SDK for the local management API of the **Zyxel NR2301** mobile router.
 
-This SDK is built against the independently reverse-engineered API reference published in [`MarcLeinenDE/nr2301-api`](https://github.com/MarcLeinenDE/nr2301-api). The initial development baseline is API release [`v0.1.0`](https://github.com/MarcLeinenDE/nr2301-api/releases/tag/v0.1.0); newly normalized Wi-Fi mode/Guest and SMS send/delete contracts currently track API `main` development metadata `0.1.1.dev0` until the next API release.
+This SDK is built against the independently reverse-engineered API reference published in [`MarcLeinenDE/nr2301-api`](https://github.com/MarcLeinenDE/nr2301-api). The initial development baseline is API release [`v0.1.0`](https://github.com/MarcLeinenDE/nr2301-api/releases/tag/v0.1.0); newly normalized contracts currently track API `main` development metadata `0.1.1.dev0` until the next API release.
 
 > [!IMPORTANT]
 > This is an independent community project. It is not affiliated with, endorsed by, or supported by Zyxel. The NR2301 API is undocumented by the manufacturer and may change between firmware versions.
@@ -19,18 +19,22 @@ Implemented so far:
 - explicit transport/protocol/authentication/API exceptions
 - context-manager support
 - typed read-only `version` helpers
+- safe device/router health, battery, feature and identity reads
+- safe SIM status plus documented raw-value summary labels
+- safe traffic/client-statistics reads
 - typed mobile-network reads plus verified network-mode/data-roaming writes
 - LAN/DHCP/DNS reads plus verified DNS writes
 - typed Wi-Fi/WPS/extender reads
 - Wi-Fi AP-section writes, WPS enable/disable, combined ↔ separate SSID mode switching and Guest enable/disable with recovery/read-back
 - SMS mailbox summary/list/query plus verified normal-SMS send and single-ID delete
-- unit tests without requiring a physical router
+- offline unit tests
+- explicitly opt-in, read-only physical-router smoke tests
 - GitHub Actions test matrix for Python 3.10–3.13
 
 Planned next:
 
-- additional evidence-backed namespace helpers
-- optional safe integration tests against a physical NR2301
+- additional evidence-backed namespace helpers where they provide useful high-level behavior
+- first local run of the read-only integration suite against a physical NR2301
 - package/release audit before the first stable SDK release
 
 ## Install for development
@@ -41,6 +45,8 @@ python -m venv .venv
 python -m pip install -e ".[test]"
 pytest
 ```
+
+Normal `pytest` runs are offline. Physical-router tests require an explicit opt-in; see [Physical-router integration testing](docs/integration-testing.md).
 
 ## Quick start
 
@@ -59,10 +65,13 @@ with NR2301Client(
     router.login()
 
     print(router.version.info())
+    print(router.device.runtime())
+    print(router.sim.summary())
     print(router.mobile.cell_info())
     print(router.lan.dns())
     print(router.wifi.basic_info())
     print(router.sms.brief_info())
+    print(router.statistics.traffic())
 ```
 
 The generic transport remains available for every documented method:
@@ -77,6 +86,86 @@ result = router.call(
 ```
 
 A call with no `data` argument uses HTTP GET, matching the observed stock frontend behavior. Supplying `data` uses HTTP POST with JSON.
+
+## Device / router status
+
+Safe status-oriented reads are grouped under `router.device`:
+
+```python
+print(router.device.runtime())
+print(router.device.diagnostics())
+print(router.device.internet())
+print(router.device.features())
+print(router.device.battery())
+print(router.device.sleep_wait_time())
+print(router.device.ui_language())
+```
+
+Additional identity surfaces are available when an application deliberately needs them:
+
+```python
+device = router.device.info()
+macs = router.device.mac_info()
+```
+
+> [!CAUTION]
+> `device.info()` can contain IMEI, IMSI, ICCID and serial number. `device.mac_info()` contains interface MAC addresses. Treat those values as sensitive identifiers and do not include them in public logs, fixtures or issue reports by default.
+
+`device.internet()` preserves the documented raw `access` value (`1` available, `0` unavailable). Diagnostic level values are also returned raw rather than being silently remapped by the base SDK.
+
+## SIM status
+
+The safe SIM API is read-only:
+
+```python
+raw = router.sim.status()
+summary = router.sim.summary()
+print(summary)
+```
+
+`summary()` uses only the endpoint-scoped mappings documented by `nr2301-api`, for example:
+
+- SIM status `0` = No SIM, `1` = SIM present, `2` = SIM error, `3` = Unknown SIM error
+- PIN status `2` = PIN required, `3` = PUK required, `5` = Ready
+- PIN enabled `0` = disabled, `1` = enabled
+
+Unknown numeric values are preserved and displayed as `Unknown (<raw>)`; they are not coerced into a guessed state.
+
+PIN/PUK writes are intentionally not exposed. The public API classifies those paths as static-only / `DO_NOT_TEST_FOR_COVERAGE`, and retry exhaustion can lock a SIM.
+
+`sim/get_lock_info` is also not wrapped as a high-level helper because the tested firmware returned HTTP 200/application-json with a zero-length body rather than a stable JSON contract.
+
+## Statistics / client state
+
+Traffic counters and transport activity:
+
+```python
+print(router.statistics.traffic())
+print(router.statistics.traffic_transport_status())
+```
+
+MAC-filter and management metadata:
+
+```python
+print(router.statistics.filter_mode())
+print(router.statistics.login_client_mac())
+```
+
+The login-client MAC is diagnostic metadata only; the API research found that it is not reliable enough to be the sole identity proof for USB management.
+
+A body-less client inventory read is available:
+
+```python
+clients = router.statistics.clients()
+```
+
+The underlying endpoint also supports frontend-specific `request_type` views. Until those exact raw tokens are normalized as a stable public contract, the SDK does not invent `active_clients()` / `inactive_clients()` / allow-list aliases. Advanced callers can pass an independently verified token through exactly:
+
+```python
+clients = router.statistics.clients(request_type="<verified raw request_type>")
+```
+
+No traffic-counter clear or MAC-filter write is part of this safe read namespace yet.
 
 ## Mobile network
 
@@ -231,17 +320,32 @@ SMS bodies and phone numbers are personal data. The SDK does not add them to its
 
 Draft-save and get-by-ID convenience helpers remain deferred until those complete request objects are normalized as stable public contracts.
 
+## Physical-router integration tests
+
+Normal tests are offline. The physical-router smoke suite is skipped unless the user explicitly sets:
+
+```text
+NR2301_INTEGRATION=1
+```
+
+and supplies the password through `NR2301_PASSWORD`.
+
+The first integration suite is **read-only** and deliberately avoids high-sensitivity surfaces such as complete device identity, MAC inventory, Wi-Fi configuration/keys and SMS mailbox content.
+
+See [`docs/integration-testing.md`](docs/integration-testing.md) for PowerShell, cmd.exe and Linux/macOS examples and the exact safety model.
+
 ## Design rules
 
 The SDK follows the public API evidence instead of normalizing behavior that has not been proven:
 
 - HTTP 200 is not treated as proof that a router operation succeeded.
 - Numeric values are **not** globally converted to strings even though the stock frontend often does so. Per-method evidence wins; SMS send/delete emit their specifically verified stringified wire fields locally.
-- Unknown response fields are preserved.
+- Unknown response fields and unknown documented raw values are preserved.
 - The base client does not invent undocumented success/error codes.
 - High-level write helpers verify resulting state or endpoint-specific semantic success.
 - Disruptive high-level helpers use read-back/recovery patterns where API research showed they are necessary.
 - Engineering/supervisor credentials are not part of this SDK.
+- Physical-router tests require explicit opt-in; normal CI must never contact a router.
 
 ## API baseline
 
