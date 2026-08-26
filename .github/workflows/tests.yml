@@ -24,3 +24,42 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Test
         run: pytest
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Validate wheel contents and metadata
+        shell: python
+        run: |
+          from email.parser import Parser
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = list(Path("dist").glob("nr2301-*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+
+          with ZipFile(wheel) as zf:
+              names = set(zf.namelist())
+              assert "nr2301/py.typed" in names
+              metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
+              metadata = Parser().parsestr(zf.read(metadata_name).decode("utf-8"))
+
+          assert metadata["Name"] == "nr2301"
+          assert metadata["Version"] == "0.1.0.dev0"
+          assert metadata["License-Expression"] == "GPL-3.0-or-later"
+          assert metadata["Requires-Python"] == ">=3.10"
+          assert any(name.endswith(".dist-info/licenses/LICENSE") for name in names)
+      - name: Import installed wheel in clean virtual environment
+        run: |
+          python -m venv /tmp/nr2301-wheel-test
+          /tmp/nr2301-wheel-test/bin/python -m pip install dist/nr2301-*.whl
+          /tmp/nr2301-wheel-test/bin/python -c "import nr2301; assert nr2301.__version__ == '0.1.0.dev0'; from nr2301 import NR2301Client; c = NR2301Client(); assert hasattr(c, 'device') and hasattr(c, 'sim') and hasattr(c, 'statistics'); c.close()"
