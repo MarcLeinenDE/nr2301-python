@@ -19,6 +19,15 @@ from .mobile import (
     SignalInfo,
     WANContext,
 )
+from .sms import (
+    SMSBriefInfo,
+    SMSMailbox,
+    SMSMailboxResponse,
+    SMSMessageNode,
+    SMSNamespace,
+    SMSQueryData,
+    SMSQueryResponse,
+)
 from .version import MagicNumberInfo, VersionInfo, VersionNamespace
 from .wifi import (
     APSection,
@@ -53,6 +62,13 @@ __all__ = [
     "MobileNamespace",
     "NetworkSettings",
     "NetworkSettingsResponse",
+    "SMSBriefInfo",
+    "SMSMailbox",
+    "SMSMailboxResponse",
+    "SMSMessageNode",
+    "SMSNamespace",
+    "SMSQueryData",
+    "SMSQueryResponse",
     "SignalInfo",
     "VersionInfo",
     "VersionNamespace",
