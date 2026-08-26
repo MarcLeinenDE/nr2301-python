@@ -19,6 +19,12 @@ APSection = Literal[
     "wifi_if_GUEST",
     "wifi_timed_off",
 ]
+WiFiMode = Literal[
+    "DUAL",
+    "DUAL GUEST",
+    "2.4G 5G",
+    "2.4G 5G GUEST",
+]
 
 _ALLOWED_AP_SECTIONS = {
     "wifi_if_24G",
@@ -27,6 +33,28 @@ _ALLOWED_AP_SECTIONS = {
     "wifi_if_GUEST",
     "wifi_timed_off",
 }
+_VERIFIED_WIFI_MODES = {
+    "DUAL",
+    "DUAL GUEST",
+    "2.4G 5G",
+    "2.4G 5G GUEST",
+}
+_MODE_TRANSITION_BLOCKS = (
+    "wifi_if_DUAL",
+    "wifi_if_24G",
+    "wifi_if_5G",
+    "wifi_if_GUEST",
+)
+# ACIY.3 does not return an independent Guest isolate value. Only fields that
+# can be read back safely are used for Guest-preservation verification.
+_GUEST_VERIFY_FIELDS = (
+    "band_mode",
+    "ssid",
+    "hidden",
+    "encryption",
+    "key",
+    "maxassoc",
+)
 
 
 class WiFiAPConfig(TypedDict, total=False):
@@ -90,7 +118,7 @@ class ExtenderStatus(TypedDict, total=False):
 
 
 class WiFiNamespace:
-    """Wi-Fi helpers backed by the public API v0.1.0 evidence."""
+    """Wi-Fi helpers backed by normalized public NR2301 API evidence."""
 
     def __init__(self, client: NR2301Client) -> None:
         self._client = client
@@ -166,6 +194,138 @@ class WiFiNamespace:
         """Run the live-verified Wi-Fi scan without imposing an unstable schema."""
 
         return self._client.call("wireless", "wifi_scan", timeout=timeout)
+
+    def guest_enabled(self, *, timeout: float | None = None) -> bool:
+        """Return whether the verified `GUEST` token is present in Wi-Fi mode."""
+
+        response = self.config(timeout=timeout)
+        config = self._extract_config(response)
+        _, guest = self._parse_verified_mode(self._extract_mode(config))
+        return guest
+
+    def uses_separate_ssids(self, *, timeout: float | None = None) -> bool:
+        """Return True for the verified separate 2.4/5 GHz mode."""
+
+        response = self.config(timeout=timeout)
+        config = self._extract_config(response)
+        separate, _ = self._parse_verified_mode(self._extract_mode(config))
+        return separate
+
+    def set_separate_ssids(
+        self,
+        separate: bool,
+        *,
+        write_timeout: float = 45.0,
+        recovery_attempts: int = 34,
+        recovery_delay: float = 3.0,
+        recovery_timeout: float = 3.0,
+    ) -> WiFiAPConfigResponse:
+        """Switch between combined and separate 2.4/5 GHz main Wi-Fi modes.
+
+        The current Guest state is preserved. All four current AP blocks that
+        can participate in the transition are copied into the write payload,
+        matching the previously live-verified application flow.
+
+        `DUAL` is deliberately described as a combined/shared SSID mode rather
+        than "Band Steering", because steering behavior was not separately
+        proven by the reverse-engineering evidence.
+        """
+
+        if not isinstance(separate, bool):
+            raise TypeError("separate must be a bool")
+        self._validate_recovery_args(
+            write_timeout,
+            recovery_attempts,
+            recovery_delay,
+            recovery_timeout,
+        )
+
+        before = self.config()
+        config = self._extract_config(before)
+        current_mode = self._extract_mode(config)
+        _, guest = self._parse_verified_mode(current_mode)
+        wanted = "2.4G 5G" if separate else "DUAL"
+        if guest:
+            wanted += " GUEST"
+
+        if current_mode == wanted:
+            return before
+
+        payload: dict[str, Any] = {"mode": wanted}
+        for key in _MODE_TRANSITION_BLOCKS:
+            block = config.get(key)
+            if isinstance(block, Mapping):
+                payload[key] = dict(block)
+
+        expected_guest = self._guest_verifiable_fields(config.get("wifi_if_GUEST"))
+        return self._write_config_and_verify_mode(
+            payload,
+            expected_mode=cast(WiFiMode, wanted),
+            expected_guest=expected_guest,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+    def set_guest_enabled(
+        self,
+        enabled: bool,
+        *,
+        write_timeout: float = 45.0,
+        recovery_attempts: int = 34,
+        recovery_delay: float = 3.0,
+        recovery_timeout: float = 3.0,
+    ) -> WiFiAPConfigResponse:
+        """Enable/disable Guest Wi-Fi by adding/removing the verified mode token.
+
+        There is no separate Guest-enable field. The current Guest configuration
+        is preserved and sent with the target mode. An independent Guest
+        isolation control is intentionally not exposed because ACIY.3 does not
+        round-trip that field in `wifi_get_ap_config`.
+        """
+
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a bool")
+        self._validate_recovery_args(
+            write_timeout,
+            recovery_attempts,
+            recovery_delay,
+            recovery_timeout,
+        )
+
+        before = self.config()
+        config = self._extract_config(before)
+        current_mode = self._extract_mode(config)
+        separate, guest = self._parse_verified_mode(current_mode)
+        wanted = "2.4G 5G" if separate else "DUAL"
+        if enabled:
+            wanted += " GUEST"
+
+        if guest == enabled:
+            return before
+
+        guest_block = config.get("wifi_if_GUEST")
+        if not isinstance(guest_block, Mapping):
+            raise ProtocolError(
+                "wireless/wifi_get_ap_config did not return wifi_if_GUEST; "
+                "refusing to toggle Guest without preserving its configuration"
+            )
+
+        payload = {
+            "mode": wanted,
+            "wifi_if_GUEST": dict(guest_block),
+        }
+        expected_guest = self._guest_verifiable_fields(guest_block)
+        return self._write_config_and_verify_mode(
+            payload,
+            expected_mode=cast(WiFiMode, wanted),
+            expected_guest=expected_guest,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
 
     def update_ap_section(
         self,
@@ -331,6 +491,68 @@ class WiFiNamespace:
             response=details,
         )
 
+    def _write_config_and_verify_mode(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        expected_mode: WiFiMode,
+        expected_guest: Mapping[str, Any],
+        write_timeout: float,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> WiFiAPConfigResponse:
+        write_error: NR2301Error | None = None
+        try:
+            self._client.call(
+                "wireless",
+                "wifi_set_ap_config",
+                data=payload,
+                timeout=write_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            # A management reset can destroy the write response even when the
+            # router accepted the change. Read-back decides success.
+            write_error = exc
+
+        last_mode: str | None = None
+        last_error: NR2301Error | None = None
+        guest_preserved: bool | None = None
+
+        for attempt in range(recovery_attempts):
+            try:
+                actual_response = self.config(timeout=recovery_timeout)
+                actual_config = self._extract_config(actual_response)
+                last_mode = self._extract_mode(actual_config)
+                guest_preserved = self._guest_matches(
+                    actual_config.get("wifi_if_GUEST"),
+                    expected_guest,
+                )
+                if last_mode == expected_mode and guest_preserved:
+                    return actual_response
+            except NR2301Error as exc:
+                last_error = exc
+                last_error = self._try_relogin(last_error)
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected_mode": expected_mode,
+            "actual_mode": last_mode,
+            "guest_preserved": guest_preserved,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+
+        raise APIError(
+            "Wi-Fi mode/Guest change could not be verified after recovery",
+            method_id="wireless/wifi_set_ap_config",
+            response=details,
+        )
+
     def _try_relogin(self, previous_error: NR2301Error) -> NR2301Error:
         if self._client.password is None:
             return previous_error
@@ -346,6 +568,39 @@ class WiFiNamespace:
         if not isinstance(config, Mapping):
             raise ProtocolError("wireless/wifi_get_ap_config did not return a config object")
         return config
+
+    @staticmethod
+    def _extract_mode(config: Mapping[str, Any]) -> str:
+        mode = config.get("mode")
+        if not isinstance(mode, str) or not mode:
+            raise ProtocolError("wireless/wifi_get_ap_config did not return a usable mode")
+        return mode
+
+    @staticmethod
+    def _parse_verified_mode(mode: str) -> tuple[bool, bool]:
+        if mode not in _VERIFIED_WIFI_MODES:
+            raise ProtocolError(
+                f"unsupported/unverified Wi-Fi mode {mode!r}; refusing to infer mode semantics"
+            )
+        return mode.startswith("2.4G 5G"), "GUEST" in mode.split()
+
+    @staticmethod
+    def _guest_verifiable_fields(value: Any) -> dict[str, Any]:
+        if not isinstance(value, Mapping):
+            return {}
+        return {key: value[key] for key in _GUEST_VERIFY_FIELDS if key in value}
+
+    @staticmethod
+    def _guest_matches(actual_value: Any, expected: Mapping[str, Any]) -> bool:
+        if not expected:
+            return True
+        if not isinstance(actual_value, Mapping):
+            return False
+        for key, wanted in expected.items():
+            actual = actual_value.get(key)
+            if str(actual) != str(wanted):
+                return False
+        return True
 
     @staticmethod
     def _extract_wps_enable(response: Mapping[str, Any]) -> str:
