@@ -2,7 +2,7 @@
 
 Unofficial Python SDK for the local management API of the **Zyxel NR2301** mobile router.
 
-This SDK is built against the independently reverse-engineered API reference published in [`MarcLeinenDE/nr2301-api`](https://github.com/MarcLeinenDE/nr2301-api). The initial development baseline is API release [`v0.1.0`](https://github.com/MarcLeinenDE/nr2301-api/releases/tag/v0.1.0).
+This SDK is built against the independently reverse-engineered API reference published in [`MarcLeinenDE/nr2301-api`](https://github.com/MarcLeinenDE/nr2301-api). The initial development baseline is API release [`v0.1.0`](https://github.com/MarcLeinenDE/nr2301-api/releases/tag/v0.1.0); newly normalized Wi-Fi mode/Guest and SMS send/delete contracts currently track API `main` development metadata `0.1.1.dev0` until the next API release.
 
 > [!IMPORTANT]
 > This is an independent community project. It is not affiliated with, endorsed by, or supported by Zyxel. The NR2301 API is undocumented by the manufacturer and may change between firmware versions.
@@ -15,26 +15,23 @@ Implemented so far:
 
 - administrator challenge login (`account/get_rand` → MD5 challenge → `account/login`)
 - `CGISID` session handling through `requests.Session`
-- generic single-call API access
-- generic multicall API access
+- generic single-call and multicall API access
 - explicit transport/protocol/authentication/API exceptions
 - context-manager support
 - typed read-only `version` helpers
-- typed mobile-network read helpers
-- verified mobile-network writes for network mode and data roaming with exact read-back
-- LAN/DHCP/DNS read helpers
-- verified DNS write helpers using read → modify → multicall write → recovery → exact read-back
-- typed Wi-Fi/WPS/extender read helpers
-- evidence-backed Wi-Fi AP-section and WPS writes with recovery/read-back
-- SMS mailbox summary/list/query helpers for the fully normalized public request contracts
+- typed mobile-network reads plus verified network-mode/data-roaming writes
+- LAN/DHCP/DNS reads plus verified DNS writes
+- typed Wi-Fi/WPS/extender reads
+- Wi-Fi AP-section writes, WPS enable/disable, combined ↔ separate SSID mode switching and Guest enable/disable with recovery/read-back
+- SMS mailbox summary/list/query plus verified normal-SMS send and single-ID delete
 - unit tests without requiring a physical router
 - GitHub Actions test matrix for Python 3.10–3.13
 
 Planned next:
 
 - additional evidence-backed namespace helpers
-- higher-level SMS writes after their full public request objects are normalized
-- optional integration tests against a physical NR2301
+- optional safe integration tests against a physical NR2301
+- package/release audit before the first stable SDK release
 
 ## Install for development
 
@@ -81,19 +78,6 @@ result = router.call(
 
 A call with no `data` argument uses HTTP GET, matching the observed stock frontend behavior. Supplying `data` uses HTTP POST with JSON.
 
-Multicall:
-
-```python
-results = router.multicall([
-    {
-        "path": "cm",
-        "method": "get_cell_info",
-        "data": {},
-        "timeout": 2,
-    }
-])
-```
-
 ## Mobile network
 
 Read cellular/WAN state and current settings:
@@ -104,79 +88,59 @@ print(router.mobile.wan_info())
 print(router.mobile.network_settings())
 ```
 
-The API reference deliberately does not define one universal hard-coded list of network-mode strings. Ask the target router which values it currently exposes:
+Ask the router for its actual network-mode strings before writing one:
 
 ```python
 modes = router.mobile.available_network_modes().get("network_modes", [])
-for mode in modes:
-    print(mode)
-```
-
-After selecting one of those exact strings, pass it back to the high-level helper:
-
-```python
-selected_mode = input("Network mode: ")
+selected_mode = modes[0]
 verified = router.mobile.set_network_mode(selected_mode)
-print(verified["network_mode"])
 ```
 
-`set_network_mode()` refuses a value that is not present in the router's current available-mode list, writes only the `network_mode` field through `cm/set_network_settings`, and returns only after exact read-back confirms the requested value. A mode that is already active is returned without an unnecessary write.
-
-Data roaming uses the same evidence-backed setter and verification pattern:
+`set_network_mode()` refuses values not reported by the target router, writes only `network_mode`, and requires exact read-back. Data roaming follows the same evidence-backed pattern:
 
 ```python
 router.mobile.set_data_roaming(True)
 router.mobile.set_data_roaming(False)
 ```
 
-The current public API contract does not fully reconstruct APN/profile writes through `cm/set_network_settings`, so this SDK does not invent such helpers.
+The public API contract does not fully reconstruct APN/profile writes through `cm/set_network_settings`, so this SDK does not invent them.
 
 ## LAN / DHCP / DNS
-
-Read the combined state or just the DNS subset:
 
 ```python
 dhcp = router.lan.dhcp()
 dns = router.lan.dns()
 address = router.lan.address()
-```
 
-Set manual upstream DNS resolvers:
-
-```python
 verified = router.lan.set_dns(
     "1.1.1.1",
     "1.0.0.1",
     ipv6_primary="2606:4700:4700::1111",
     ipv6_secondary="2606:4700:4700::1001",
 )
-print(verified)
-```
 
-Return to automatic DNS:
-
-```python
 router.lan.set_dns_auto()
 ```
 
 > [!WARNING]
-> The NR2301 uses a combined LAN/DHCP/DNS setter that may reset management connectivity. The high-level DNS helper therefore copies the complete current DHCP object, changes only the DNS fields, writes it through multicall, then requires exact read-back. A lost HTTP response is treated as inconclusive rather than as proof of failure or success.
+> The NR2301 uses a combined LAN/DHCP/DNS setter that may reset management connectivity. The high-level DNS helper copies the complete current DHCP object, changes only DNS fields, writes it through multicall, then requires exact read-back.
 
 The configured manual addresses are upstream resolvers for the NR2301 DNS proxy. Clients may still receive the router's LAN address as their DNS server.
 
 ## Wi-Fi / WPS / extender
 
-Read the complete AP configuration or individual status surfaces:
+Read state:
 
 ```python
 print(router.wifi.config())
 print(router.wifi.basic_info())
+print(router.wifi.guest_enabled())
+print(router.wifi.uses_separate_ssids())
 print(router.wifi.wps())
-print(router.wifi.wps_status())
 print(router.wifi.extender_status())
 ```
 
-`update_ap_section()` first copies the current router-provided section, changes only the requested keys, writes the complete preserved section, then verifies those changed keys after recovery:
+Change one existing AP section while preserving the rest of that block:
 
 ```python
 router.wifi.update_ap_section(
@@ -185,9 +149,41 @@ router.wifi.update_ap_section(
 )
 ```
 
-The same helper can update documented fields such as `key`, `channel`, `hidden`, `encryption` or Guest `maxassoc` without reconstructing the remainder of that AP block from defaults.
+### Combined vs separate 2.4/5 GHz settings
 
-WPS enable/disable uses the live-verified string transport value and read-back:
+The tested firmware has four live-verified mode states:
+
+```text
+DUAL
+DUAL GUEST
+2.4G 5G
+2.4G 5G GUEST
+```
+
+Switch the main Wi-Fi between a combined/shared 2.4/5 GHz SSID and separate band settings:
+
+```python
+router.wifi.set_separate_ssids(False)  # combined/shared main SSID
+router.wifi.set_separate_ssids(True)   # separate 2.4 and 5 GHz settings
+```
+
+The helper preserves the current Guest token, carries forward all current participating AP blocks, handles an expected management reset, and requires exact mode read-back. `DUAL` is intentionally **not** labelled Band Steering because steering behavior was not separately proven.
+
+### Guest Wi-Fi
+
+Guest enable/disable is represented by the `GUEST` token in the Wi-Fi mode; the router has no separate Guest-enable property:
+
+```python
+router.wifi.set_guest_enabled(True)
+router.wifi.set_guest_enabled(False)
+```
+
+The current Guest configuration is preserved and verified after recovery. Guest `maxassoc` can be changed through `update_ap_section()`; the tested/frontend-supported normal range is `1..10`.
+
+> [!CAUTION]
+> On tested firmware `V1.00(ACIY.3)C0`, the getter does not return an independently round-trippable Guest `isolate` value. The SDK therefore does not expose a separate Guest-isolation control.
+
+WPS enable/disable remains available:
 
 ```python
 router.wifi.set_wps_enabled(True)
@@ -195,13 +191,11 @@ router.wifi.set_wps_enabled(False)
 ```
 
 > [!WARNING]
-> `wifi_set_ap_config` and `wifi_set_wps_disable` are disruptive operations. If the SDK itself is connected through the Wi-Fi network whose SSID or key is changed, the operating system may need to reconnect to that network before HTTP read-back can succeed. The SDK can recover HTTP sessions, but it cannot reconfigure the host operating system's Wi-Fi connection.
-
-The SDK does not currently invent convenient Dual/Split/Guest mode aliases. Wi-Fi mode tokens remain firmware/API values until a stable public semantic contract exists.
+> Wi-Fi setters are disruptive. If the SDK itself is connected through the Wi-Fi network whose SSID/key/mode changes, the host operating system may need to reconnect before HTTP read-back can succeed. The SDK can recover HTTP sessions but cannot reconfigure the host operating system's Wi-Fi connection.
 
 ## SMS
 
-The SDK exposes the SMS requests whose public payload contracts are fully normalized:
+Read mailbox state:
 
 ```python
 summary = router.sms.brief_info()
@@ -209,22 +203,44 @@ page = router.sms.list_by_type(0, page_index=1)
 ids = router.sms.query_ids(message_type=4, read=2, location=0)
 ```
 
-`list_type`, `message_type`, `read` and `location` remain endpoint-scoped raw values rather than being mapped to guessed cross-method enums. `query_ids()` uses the documented `sms.query` semantic success rule (`resp == 0`) and parses the returned comma-separated IDs into strings.
+Send a normal SMS using the exact live-verified stock-frontend encoding contract:
 
-The public API reference confirms that `sms.send`, `sms.delete`, `sms.save` and `sms.get_by_id` exist and have been live exercised, but their complete frontend-shaped `sms` request objects are not yet normalized in `nr2301-api v0.1.0`. This SDK therefore does **not** invent high-level `send()`/`delete()` payloads yet. The generic `router.call()` remains available for users who deliberately work from their own verified request object.
+```python
+result = router.sms.send("+15551234567", "Hello")
+```
 
-SMS bodies and phone numbers are personal data. Do not place real SMS contents or numbers in public logs, fixtures or issue reports.
+`send()` automatically:
+
+- detects whether the message fits the frontend GSM7 character sets;
+- converts the message to the router's UTF-16BE uppercase-hex `UniEncode` representation;
+- creates the observed local timestamp format;
+- adds the required trailing comma to the recipient field;
+- uses the live-verified normal-SMS `protocol="0"` flow;
+- requires `resp=0`, `smsSendSucc=1`, `smsSendFail=0` rather than trusting HTTP 200.
+
+Delete one message using either an integer ID or a numeric string returned by `query_ids()`:
+
+```python
+router.sms.delete(42)
+router.sms.delete("42")
+```
+
+Deletion requires the live-verified `resp=0`, `smsDelSucc=1`, `smsDelFail=0` success triple.
+
+SMS bodies and phone numbers are personal data. The SDK does not add them to its own error details, and real SMS content/numbers should never be placed in public logs, fixtures or issue reports.
+
+Draft-save and get-by-ID convenience helpers remain deferred until those complete request objects are normalized as stable public contracts.
 
 ## Design rules
 
 The SDK follows the public API evidence instead of normalizing behavior that has not been proven:
 
 - HTTP 200 is not treated as proof that a router operation succeeded.
-- Numeric values are **not** globally converted to strings even though the stock frontend often does so. Per-method evidence wins.
+- Numeric values are **not** globally converted to strings even though the stock frontend often does so. Per-method evidence wins; SMS send/delete emit their specifically verified stringified wire fields locally.
 - Unknown response fields are preserved.
 - The base client does not invent undocumented success/error codes.
-- High-level write helpers verify the resulting state rather than trusting transport success alone.
-- Disruptive high-level helpers use read-back/recovery patterns where the API research showed they are necessary.
+- High-level write helpers verify resulting state or endpoint-specific semantic success.
+- Disruptive high-level helpers use read-back/recovery patterns where API research showed they are necessary.
 - Engineering/supervisor credentials are not part of this SDK.
 
 ## API baseline
@@ -232,10 +248,11 @@ The SDK follows the public API evidence instead of normalizing behavior that has
 The canonical protocol reference is external to this repository:
 
 - API repository: <https://github.com/MarcLeinenDE/nr2301-api>
-- pinned initial API release: `v0.1.0`
-- tested API firmware baseline: `V1.00(ACIY.3)C0`
+- immutable initial API release: `v0.1.0`
+- current API development metadata used by the newest helpers: `0.1.1.dev0`
+- tested firmware baseline: `V1.00(ACIY.3)C0`
 
-The SDK should not maintain an independent hand-edited copy of the 157-method specification. Where practical, future CI/code generation should validate against the published API specification instead.
+The SDK does not maintain an independent hand-edited copy of the 157-method specification. New high-level helpers are promoted only after their contracts are normalized in the API repository.
 
 ## Maintainer / support expectations
 
