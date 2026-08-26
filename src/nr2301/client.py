@@ -9,7 +9,7 @@ import requests
 
 from .auth import challenge_response, generate_user_id, login_result_text
 from .exceptions import AuthenticationError, ProtocolError
-from .namespaces import VersionNamespace
+from .namespaces import MobileNamespace, VersionNamespace
 from .transport import HTTPTransport
 
 
@@ -33,6 +33,7 @@ class NR2301Client:
         # Evidence-backed high-level namespaces. The generic call()/multicall()
         # transport remains available for every documented API method.
         self.version = VersionNamespace(self)
+        self.mobile = MobileNamespace(self)
 
     @property
     def authenticated(self) -> bool:
