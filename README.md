@@ -20,7 +20,8 @@ Implemented so far:
 - explicit transport/protocol/authentication/API exceptions
 - context-manager support
 - typed read-only `version` helpers
-- typed read-only mobile-network helpers
+- typed mobile-network read helpers
+- verified mobile-network writes for network mode and data roaming with exact read-back
 - LAN/DHCP/DNS read helpers
 - verified DNS write helpers using read → modify → multicall write → recovery → exact read-back
 - unit tests without requiring a physical router
@@ -28,7 +29,6 @@ Implemented so far:
 
 Planned next:
 
-- mobile-network write helpers such as network-mode changes
 - Wi-Fi and SMS helpers
 - additional evidence-backed namespace helpers
 - optional integration tests against a physical NR2301
@@ -89,6 +89,43 @@ results = router.multicall([
 ])
 ```
 
+## Mobile network
+
+Read cellular/WAN state and current settings:
+
+```python
+print(router.mobile.cell_info())
+print(router.mobile.wan_info())
+print(router.mobile.network_settings())
+```
+
+The API reference deliberately does not define one universal hard-coded list of network-mode strings. Ask the target router which values it currently exposes:
+
+```python
+modes = router.mobile.available_network_modes().get("network_modes", [])
+for mode in modes:
+    print(mode)
+```
+
+After selecting one of those exact strings, pass it back to the high-level helper:
+
+```python
+selected_mode = input("Network mode: ")
+verified = router.mobile.set_network_mode(selected_mode)
+print(verified["network_mode"])
+```
+
+`set_network_mode()` refuses a value that is not present in the router's current available-mode list, writes only the `network_mode` field through `cm/set_network_settings`, and returns only after exact read-back confirms the requested value. A mode that is already active is returned without an unnecessary write.
+
+Data roaming uses the same evidence-backed setter and verification pattern:
+
+```python
+router.mobile.set_data_roaming(True)
+router.mobile.set_data_roaming(False)
+```
+
+The current public API contract does not fully reconstruct APN/profile writes through `cm/set_network_settings`, so this SDK does not invent such helpers.
+
 ## LAN / DHCP / DNS
 
 Read the combined state or just the DNS subset:
@@ -130,6 +167,7 @@ The SDK follows the public API evidence instead of normalizing behavior that has
 - Numeric values are **not** globally converted to strings even though the stock frontend often does so. Per-method evidence wins.
 - Unknown response fields are preserved.
 - The base client does not invent undocumented success/error codes.
+- High-level write helpers verify the resulting state rather than trusting transport success alone.
 - Disruptive high-level helpers use read-back/recovery patterns where the API research showed they are necessary.
 - Engineering/supervisor credentials are not part of this SDK.
 
