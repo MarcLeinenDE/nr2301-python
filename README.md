@@ -9,23 +9,28 @@ This SDK is built against the independently reverse-engineered API reference pub
 
 ## Status
 
-`0.1.0.dev0` is the first SDK development baseline. It intentionally starts with the transport/authentication foundation rather than pretending that all 157 documented API methods already have a stable high-level Python wrapper.
+`0.1.0.dev0` is the first SDK development baseline. It intentionally grows from the transport/authentication foundation into evidence-backed high-level helpers instead of pretending that all 157 documented API methods already have a stable Python wrapper.
 
-Implemented in this baseline:
+Implemented so far:
 
 - administrator challenge login (`account/get_rand` → MD5 challenge → `account/login`)
 - `CGISID` session handling through `requests.Session`
 - generic single-call API access
 - generic multicall API access
-- explicit transport/protocol/authentication exceptions
+- explicit transport/protocol/authentication/API exceptions
 - context-manager support
+- typed read-only `version` helpers
+- typed read-only mobile-network helpers
+- LAN/DHCP/DNS read helpers
+- verified DNS write helpers using read → modify → multicall write → recovery → exact read-back
 - unit tests without requiring a physical router
+- GitHub Actions test matrix for Python 3.10–3.13
 
 Planned next:
 
-- typed namespace helpers
-- safe read/modify/write helpers for configuration blocks
-- high-level mobile-network, LAN/DHCP/DNS, Wi-Fi and SMS workflows
+- mobile-network write helpers such as network-mode changes
+- Wi-Fi and SMS helpers
+- additional evidence-backed namespace helpers
 - optional integration tests against a physical NR2301
 
 ## Install for development
@@ -53,11 +58,12 @@ with NR2301Client(
 ) as router:
     router.login()
 
-    version = router.call("version", "get_ww_version")
-    print(version)
+    print(router.version.info())
+    print(router.mobile.cell_info())
+    print(router.lan.dns())
 ```
 
-A call with no `data` argument uses HTTP GET, matching the observed stock frontend behavior. Supplying `data` uses HTTP POST with JSON:
+The generic transport remains available for every documented method:
 
 ```python
 result = router.call(
@@ -67,6 +73,8 @@ result = router.call(
     authenticated=False,
 )
 ```
+
+A call with no `data` argument uses HTTP GET, matching the observed stock frontend behavior. Supplying `data` uses HTTP POST with JSON.
 
 Multicall:
 
@@ -81,6 +89,39 @@ results = router.multicall([
 ])
 ```
 
+## LAN / DHCP / DNS
+
+Read the combined state or just the DNS subset:
+
+```python
+dhcp = router.lan.dhcp()
+dns = router.lan.dns()
+address = router.lan.address()
+```
+
+Set manual upstream DNS resolvers:
+
+```python
+verified = router.lan.set_dns(
+    "1.1.1.1",
+    "1.0.0.1",
+    ipv6_primary="2606:4700:4700::1111",
+    ipv6_secondary="2606:4700:4700::1001",
+)
+print(verified)
+```
+
+Return to automatic DNS:
+
+```python
+router.lan.set_dns_auto()
+```
+
+> [!WARNING]
+> The NR2301 uses a combined LAN/DHCP/DNS setter that may reset management connectivity. The high-level DNS helper therefore copies the complete current DHCP object, changes only the DNS fields, writes it through multicall, then requires exact read-back. A lost HTTP response is treated as inconclusive rather than as proof of failure or success.
+
+The configured manual addresses are upstream resolvers for the NR2301 DNS proxy. Clients may still receive the router's LAN address as their DNS server.
+
 ## Design rules
 
 The SDK follows the public API evidence instead of normalizing behavior that has not been proven:
@@ -89,7 +130,7 @@ The SDK follows the public API evidence instead of normalizing behavior that has
 - Numeric values are **not** globally converted to strings even though the stock frontend often does so. Per-method evidence wins.
 - Unknown response fields are preserved.
 - The base client does not invent undocumented success/error codes.
-- Disruptive high-level helpers will use read-back/recovery patterns where the API research showed they are necessary.
+- Disruptive high-level helpers use read-back/recovery patterns where the API research showed they are necessary.
 - Engineering/supervisor credentials are not part of this SDK.
 
 ## API baseline
