@@ -1,3 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""High-level namespace helpers are added here as they become evidence-backed."""
+from .version import MagicNumberInfo, VersionInfo, VersionNamespace
+
+__all__ = ["VersionNamespace", "VersionInfo", "MagicNumberInfo"]

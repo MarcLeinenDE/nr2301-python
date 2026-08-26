@@ -9,6 +9,7 @@ import requests
 
 from .auth import challenge_response, generate_user_id, login_result_text
 from .exceptions import AuthenticationError, ProtocolError
+from .namespaces import VersionNamespace
 from .transport import HTTPTransport
 
 
@@ -28,6 +29,10 @@ class NR2301Client:
         self.password = password
         self.transport = HTTPTransport(base_url, session=session, timeout=timeout)
         self._authenticated = False
+
+        # Evidence-backed high-level namespaces. The generic call()/multicall()
+        # transport remains available for every documented API method.
+        self.version = VersionNamespace(self)
 
     @property
     def authenticated(self) -> bool:

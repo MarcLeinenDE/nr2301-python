@@ -11,5 +11,6 @@
 - context-manager lifecycle
 - offline unit tests
 - GitHub Actions test workflow
+- first typed read-only namespace helper: `client.version.info()` and `client.version.magic_number()`
 
 The SDK is based on `nr2301-api v0.1.0`.
