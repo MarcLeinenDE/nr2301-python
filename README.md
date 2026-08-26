@@ -104,7 +104,7 @@ The SDK should not maintain an independent hand-edited copy of the 157-method sp
 
 ## Maintainer / support expectations
 
-This project grew out of a personal spare-time reverse-engineering project and is published so other users do not have to repeat the same work. Issues, corrections and pull requests are welcome. There is no commercial support or SLA. The maintainer has a young child and limited spare time, so replies and reviews may sometimes take a while.
+This project grew out of a personal spare-time reverse-engineering project and is published so other users do not have to repeat the same work. Issues, corrections and pull requests are welcome. There is no commercial support or SLA. I have a young child and limited spare time, so replies and reviews may sometimes take a while.
 
 ## Security
 
