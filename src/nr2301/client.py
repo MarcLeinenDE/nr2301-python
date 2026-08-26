@@ -9,7 +9,7 @@ import requests
 
 from .auth import challenge_response, generate_user_id, login_result_text
 from .exceptions import AuthenticationError, ProtocolError
-from .namespaces import MobileNamespace, VersionNamespace
+from .namespaces import LANNamespace, MobileNamespace, VersionNamespace
 from .transport import HTTPTransport
 
 
@@ -34,6 +34,7 @@ class NR2301Client:
         # transport remains available for every documented API method.
         self.version = VersionNamespace(self)
         self.mobile = MobileNamespace(self)
+        self.lan = LANNamespace(self)
 
     @property
     def authenticated(self) -> bool:
