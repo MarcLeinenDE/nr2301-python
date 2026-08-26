@@ -1,0 +1,37 @@
+name: Bootstrap exact GPL license
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap-license:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch byte-exact GPL-3.0 text from nr2301-api v0.1.0
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/MarcLeinenDE/nr2301-api/v0.1.0/LICENSES/GPL-3.0.txt -o LICENSE
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path('LICENSE')
+          b = p.read_bytes()
+          blob = hashlib.sha1(f'blob {len(b)}\0'.encode() + b).hexdigest()
+          expected = 'f288702d2fa16d3cdf0035b15a9fcbc552cd88e7'
+          if blob != expected:
+              raise SystemExit(f'LICENSE blob mismatch: {blob} != {expected}')
+          print(f'LICENSE blob verified: {blob}')
+          PY
+      - name: Commit license
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LICENSE
+          git diff --cached --exit-code && exit 0
+          git commit -m "Add GPL-3.0 license"
+          git push

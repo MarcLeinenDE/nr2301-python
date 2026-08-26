@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nr2301"
+version = "0.1.0.dev0"
+description = "Unofficial Python SDK for the Zyxel NR2301 local management API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+authors = [
+  {name = "Marc Leinen"}
+]
+dependencies = [
+  "requests>=2.32,<3"
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Networking",
+]
+
+[project.urls]
+Homepage = "https://github.com/MarcLeinenDE/nr2301-python"
+Documentation = "https://github.com/MarcLeinenDE/nr2301-api"
+Issues = "https://github.com/MarcLeinenDE/nr2301-python/issues"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8,<10"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.package-data]
+nr2301 = ["py.typed"]
