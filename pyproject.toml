@@ -43,6 +43,9 @@ where = ["src"]
 addopts = "-ra"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "integration: explicitly opted-in tests against a physical NR2301",
+]
 
 [tool.setuptools.package-data]
 nr2301 = ["py.typed"]
