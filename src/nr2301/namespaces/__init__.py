@@ -1,5 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from .lan import (
+    CombinedDHCPResponse,
+    DHCPSettings,
+    DNSSettings,
+    LANAddress,
+    LANAddressResponse,
+    LANNamespace,
+)
 from .mobile import (
     AvailableNetworkModes,
     CellInfo,
@@ -17,7 +25,13 @@ __all__ = [
     "AvailableNetworkModes",
     "CellInfo",
     "CellularBasicInfo",
+    "CombinedDHCPResponse",
     "CurrentWANInfo",
+    "DHCPSettings",
+    "DNSSettings",
+    "LANAddress",
+    "LANAddressResponse",
+    "LANNamespace",
     "MagicNumberInfo",
     "MobileNamespace",
     "NetworkSettings",
