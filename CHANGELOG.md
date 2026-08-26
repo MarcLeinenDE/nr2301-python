@@ -12,6 +12,9 @@
 - offline unit tests
 - GitHub Actions test workflow
 - typed read-only `version` helpers
+- safe `client.device` reads for identity/platform metadata, runtime CPU/RAM/temperature, router/internet diagnostics, feature flags, interface MAC metadata, UI language, battery status and sleep-wait time
+- safe `client.sim.status()` plus `client.sim.summary()` using the endpoint-scoped public SIM/PIN status semantics while preserving unknown raw values
+- safe `client.statistics` reads for traffic counters, RX/TX transport activity, MAC-filter mode, optional login-client MAC metadata and the generic client inventory view
 - typed mobile-network read helpers
 - `client.mobile.set_network_mode()` with runtime available-mode validation and exact read-back verification
 - `client.mobile.set_data_roaming()` with exact read-back verification
@@ -29,7 +32,10 @@
 
 ### Deliberately deferred
 
+- SIM PIN/PUK writes are not exposed: those public API paths remain static-only / `DO_NOT_TEST_FOR_COVERAGE`
+- `sim/get_lock_info` is not wrapped because the tested firmware returned HTTP 200 with an empty response body rather than a stable JSON contract
+- semantic aliases for `statistics/get_conn_clients_info.request_type` are not invented until the exact raw request-type tokens are normalized in the public API
 - SMS draft-save and get-by-ID convenience helpers remain deferred until those full request objects are normalized as stable public contracts
 - independent Guest isolation is not exposed on ACIY.3 because the getter does not safely round-trip that value
 
-The SDK started from immutable `nr2301-api v0.1.0`; the newest Wi-Fi mode/Guest and SMS send/delete helpers track the API repository's normalized `0.1.1.dev0` development contracts on `main`.
+The SDK started from immutable `nr2301-api v0.1.0`; the newest normalized contracts track the API repository's `0.1.1.dev0` development state on `main`.
