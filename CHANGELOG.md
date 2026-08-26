@@ -12,7 +12,9 @@
 - offline unit tests
 - GitHub Actions test workflow
 - typed read-only `version` helpers
-- typed read-only mobile-network helpers
+- typed mobile-network read helpers
+- `client.mobile.set_network_mode()` with runtime available-mode validation and exact read-back verification
+- `client.mobile.set_data_roaming()` with exact read-back verification
 - LAN/DHCP/DNS read helpers
 - `client.lan.set_dns()` and `client.lan.set_dns_auto()` with full-object preservation, disruptive-write recovery and exact DNS read-back verification
 
