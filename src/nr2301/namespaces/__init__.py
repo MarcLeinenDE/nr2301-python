@@ -20,8 +20,23 @@ from .mobile import (
     WANContext,
 )
 from .version import MagicNumberInfo, VersionInfo, VersionNamespace
+from .wifi import (
+    APSection,
+    ExtenderConfig,
+    ExtenderStatus,
+    WiFiAPConfig,
+    WiFiAPConfigResponse,
+    WiFiBasicInfo,
+    WiFiDiagnostics,
+    WiFiNamespace,
+    WiFiTimedOffStatus,
+    WiFiWPSResponse,
+    WiFiWPSState,
+    WPSStatus,
+)
 
 __all__ = [
+    "APSection",
     "AvailableNetworkModes",
     "CellInfo",
     "CellularBasicInfo",
@@ -29,6 +44,8 @@ __all__ = [
     "CurrentWANInfo",
     "DHCPSettings",
     "DNSSettings",
+    "ExtenderConfig",
+    "ExtenderStatus",
     "LANAddress",
     "LANAddressResponse",
     "LANNamespace",
@@ -40,4 +57,13 @@ __all__ = [
     "VersionInfo",
     "VersionNamespace",
     "WANContext",
+    "WiFiAPConfig",
+    "WiFiAPConfigResponse",
+    "WiFiBasicInfo",
+    "WiFiDiagnostics",
+    "WiFiNamespace",
+    "WiFiTimedOffStatus",
+    "WiFiWPSResponse",
+    "WiFiWPSState",
+    "WPSStatus",
 ]
