@@ -24,13 +24,16 @@ Implemented so far:
 - verified mobile-network writes for network mode and data roaming with exact read-back
 - LAN/DHCP/DNS read helpers
 - verified DNS write helpers using read → modify → multicall write → recovery → exact read-back
+- typed Wi-Fi/WPS/extender read helpers
+- evidence-backed Wi-Fi AP-section and WPS writes with recovery/read-back
+- SMS mailbox summary/list/query helpers for the fully normalized public request contracts
 - unit tests without requiring a physical router
 - GitHub Actions test matrix for Python 3.10–3.13
 
 Planned next:
 
-- Wi-Fi and SMS helpers
 - additional evidence-backed namespace helpers
+- higher-level SMS writes after their full public request objects are normalized
 - optional integration tests against a physical NR2301
 
 ## Install for development
@@ -61,6 +64,8 @@ with NR2301Client(
     print(router.version.info())
     print(router.mobile.cell_info())
     print(router.lan.dns())
+    print(router.wifi.basic_info())
+    print(router.sms.brief_info())
 ```
 
 The generic transport remains available for every documented method:
@@ -158,6 +163,57 @@ router.lan.set_dns_auto()
 > The NR2301 uses a combined LAN/DHCP/DNS setter that may reset management connectivity. The high-level DNS helper therefore copies the complete current DHCP object, changes only the DNS fields, writes it through multicall, then requires exact read-back. A lost HTTP response is treated as inconclusive rather than as proof of failure or success.
 
 The configured manual addresses are upstream resolvers for the NR2301 DNS proxy. Clients may still receive the router's LAN address as their DNS server.
+
+## Wi-Fi / WPS / extender
+
+Read the complete AP configuration or individual status surfaces:
+
+```python
+print(router.wifi.config())
+print(router.wifi.basic_info())
+print(router.wifi.wps())
+print(router.wifi.wps_status())
+print(router.wifi.extender_status())
+```
+
+`update_ap_section()` first copies the current router-provided section, changes only the requested keys, writes the complete preserved section, then verifies those changed keys after recovery:
+
+```python
+router.wifi.update_ap_section(
+    "wifi_if_24G",
+    {"ssid": "Example-SSID"},
+)
+```
+
+The same helper can update documented fields such as `key`, `channel`, `hidden`, `encryption` or Guest `maxassoc` without reconstructing the remainder of that AP block from defaults.
+
+WPS enable/disable uses the live-verified string transport value and read-back:
+
+```python
+router.wifi.set_wps_enabled(True)
+router.wifi.set_wps_enabled(False)
+```
+
+> [!WARNING]
+> `wifi_set_ap_config` and `wifi_set_wps_disable` are disruptive operations. If the SDK itself is connected through the Wi-Fi network whose SSID or key is changed, the operating system may need to reconnect to that network before HTTP read-back can succeed. The SDK can recover HTTP sessions, but it cannot reconfigure the host operating system's Wi-Fi connection.
+
+The SDK does not currently invent convenient Dual/Split/Guest mode aliases. Wi-Fi mode tokens remain firmware/API values until a stable public semantic contract exists.
+
+## SMS
+
+The SDK exposes the SMS requests whose public payload contracts are fully normalized:
+
+```python
+summary = router.sms.brief_info()
+page = router.sms.list_by_type(0, page_index=1)
+ids = router.sms.query_ids(message_type=4, read=2, location=0)
+```
+
+`list_type`, `message_type`, `read` and `location` remain endpoint-scoped raw values rather than being mapped to guessed cross-method enums. `query_ids()` uses the documented `sms.query` semantic success rule (`resp == 0`) and parses the returned comma-separated IDs into strings.
+
+The public API reference confirms that `sms.send`, `sms.delete`, `sms.save` and `sms.get_by_id` exist and have been live exercised, but their complete frontend-shaped `sms` request objects are not yet normalized in `nr2301-api v0.1.0`. This SDK therefore does **not** invent high-level `send()`/`delete()` payloads yet. The generic `router.call()` remains available for users who deliberately work from their own verified request object.
+
+SMS bodies and phone numbers are personal data. Do not place real SMS contents or numbers in public logs, fixtures or issue reports.
 
 ## Design rules
 
