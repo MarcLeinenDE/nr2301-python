@@ -1,6 +1,6 @@
 import pytest
 
-from nr2301 import APIError, NR2301Client
+from nr2301 import APIError, NR2301Client, ProtocolError
 
 from conftest import FakeResponse, FakeSession
 
@@ -57,6 +57,126 @@ def test_wifi_basic_info_uses_frontend_shaped_post():
     assert method == "POST"
     assert kwargs["params"]["method"] == "wifi_get_basic_info"
     assert kwargs["json"] == {"sw_only": "1"}
+
+
+def test_guest_enabled_and_separate_mode_use_verified_tokens():
+    client, _ = authenticated_client(
+        {"config": {"mode": "DUAL GUEST"}},
+        {"config": {"mode": "2.4G 5G"}},
+    )
+
+    assert client.wifi.guest_enabled() is True
+    assert client.wifi.uses_separate_ssids() is True
+
+
+def test_mode_helpers_refuse_unknown_mode_semantics():
+    client, session = authenticated_client({"config": {"mode": "FUTURE_MODE"}})
+
+    with pytest.raises(ProtocolError, match="unsupported/unverified Wi-Fi mode"):
+        client.wifi.guest_enabled()
+
+    assert len(session.calls) == 1
+
+
+def test_set_guest_enabled_preserves_guest_block_and_verifies_mode():
+    guest = {
+        "band_mode": "2.4G",
+        "ssid": "Synthetic-Guest",
+        "encryption": "psk-mixed+ccmp",
+        "key": "synthetic-secret",
+        "hidden": "0",
+        "maxassoc": "10",
+    }
+    before = {"config": {"mode": "DUAL", "wifi_if_GUEST": guest}}
+    after = {"config": {"mode": "DUAL GUEST", "wifi_if_GUEST": guest}}
+    client, session = authenticated_client(before, {"result": 0}, after)
+
+    result = client.wifi.set_guest_enabled(True, recovery_delay=0)
+
+    assert result["config"]["mode"] == "DUAL GUEST"
+    _, _, write_kwargs = session.calls[1]
+    assert write_kwargs["params"]["method"] == "wifi_set_ap_config"
+    assert write_kwargs["json"] == {
+        "mode": "DUAL GUEST",
+        "wifi_if_GUEST": guest,
+    }
+
+
+def test_set_guest_enabled_preserves_split_mode_when_disabling():
+    guest = {"ssid": "Synthetic-Guest", "key": "synthetic-secret", "maxassoc": "9"}
+    before = {"config": {"mode": "2.4G 5G GUEST", "wifi_if_GUEST": guest}}
+    after = {"config": {"mode": "2.4G 5G", "wifi_if_GUEST": guest}}
+    client, session = authenticated_client(before, {"result": 0}, after)
+
+    result = client.wifi.set_guest_enabled(False, recovery_delay=0)
+
+    assert result["config"]["mode"] == "2.4G 5G"
+    assert session.calls[1][2]["json"]["mode"] == "2.4G 5G"
+
+
+def test_set_guest_enabled_same_state_avoids_write():
+    guest = {"ssid": "Synthetic-Guest", "key": "synthetic-secret"}
+    before = {"config": {"mode": "DUAL GUEST", "wifi_if_GUEST": guest}}
+    client, session = authenticated_client(before)
+
+    result = client.wifi.set_guest_enabled(True, recovery_delay=0)
+
+    assert result == before
+    assert len(session.calls) == 1
+
+
+def test_set_separate_ssids_preserves_guest_token_and_all_present_blocks():
+    blocks = {
+        "wifi_if_DUAL": {"ssid": "Combined", "key": "combined-secret"},
+        "wifi_if_24G": {"ssid": "TwoFour", "key": "24-secret", "channel": "auto"},
+        "wifi_if_5G": {"ssid": "Five", "key": "5-secret", "channel": "auto"},
+        "wifi_if_GUEST": {"ssid": "Guest", "key": "guest-secret", "maxassoc": "10"},
+    }
+    before = {"config": {"mode": "DUAL GUEST", **blocks}}
+    after = {"config": {"mode": "2.4G 5G GUEST", **blocks}}
+    client, session = authenticated_client(before, {"result": 0}, after)
+
+    result = client.wifi.set_separate_ssids(True, recovery_delay=0)
+
+    assert result["config"]["mode"] == "2.4G 5G GUEST"
+    payload = session.calls[1][2]["json"]
+    assert payload["mode"] == "2.4G 5G GUEST"
+    for key, block in blocks.items():
+        assert payload[key] == block
+
+
+def test_set_separate_ssids_uses_readback_after_transport_failure():
+    guest = {"ssid": "Guest", "key": "guest-secret"}
+    before = {"config": {"mode": "DUAL", "wifi_if_GUEST": guest}}
+    after = {"config": {"mode": "2.4G 5G", "wifi_if_GUEST": guest}}
+    client, session = authenticated_client(
+        before,
+        FakeResponse({}, status_code=500),
+        after,
+    )
+
+    result = client.wifi.set_separate_ssids(True, recovery_delay=0)
+
+    assert result["config"]["mode"] == "2.4G 5G"
+    assert len(session.calls) == 3
+
+
+def test_set_separate_ssids_requires_bool_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(TypeError, match="separate must be a bool"):
+        client.wifi.set_separate_ssids("yes")  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
+def test_set_guest_enabled_requires_bool_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(TypeError, match="enabled must be a bool"):
+        client.wifi.set_guest_enabled("1")  # type: ignore[arg-type]
+
+    assert session.calls == []
 
 
 def test_update_ap_section_preserves_current_block_and_verifies_changes():
