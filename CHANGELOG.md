@@ -20,11 +20,16 @@
 - typed Wi-Fi/WPS/extender read helpers
 - `client.wifi.update_ap_section()` with router-state preservation, disruptive recovery and changed-field read-back verification
 - `client.wifi.set_wps_enabled()` with exact `wps_enable` read-back verification
-- SMS mailbox summary/list/query helpers for the fully normalized public request contracts
+- `client.wifi.guest_enabled()` and `client.wifi.uses_separate_ssids()` for the verified Wi-Fi mode states
+- `client.wifi.set_separate_ssids()` using the live-verified `DUAL` ↔ `2.4G 5G` state machine while preserving the Guest token and current AP blocks
+- `client.wifi.set_guest_enabled()` using the verified `GUEST` mode token with Guest configuration preservation and disruptive recovery/read-back
+- SMS mailbox summary/list/query helpers
+- `client.sms.send()` using the normalized normal-SMS GSM7/UTF-16BE/timestamp wire contract and verified SMS-specific success fields
+- `client.sms.delete()` using the normalized single-ID request and verified deletion success fields
 
 ### Deliberately deferred
 
-- high-level SMS send/save/delete/get-by-id helpers remain deferred until their complete frontend-shaped `sms` request objects are normalized in the public API contract
-- Wi-Fi Dual/Split/Guest mode aliases remain deferred rather than inventing firmware-independent mode tokens
+- SMS draft-save and get-by-ID convenience helpers remain deferred until those full request objects are normalized as stable public contracts
+- independent Guest isolation is not exposed on ACIY.3 because the getter does not safely round-trip that value
 
-The SDK is based on `nr2301-api v0.1.0`.
+The SDK started from immutable `nr2301-api v0.1.0`; the newest Wi-Fi mode/Guest and SMS send/delete helpers track the API repository's normalized `0.1.1.dev0` development contracts on `main`.
