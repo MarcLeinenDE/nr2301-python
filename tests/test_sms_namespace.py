@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from nr2301 import APIError, NR2301Client
@@ -75,5 +77,102 @@ def test_sms_query_ids_validates_filter_types_before_network_access():
 
     with pytest.raises(TypeError, match="message_type must be an int"):
         client.sms.query_ids(message_type=True, read=2, location=0)  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
+def test_sms_send_matches_verified_wire_contract_and_success_fields():
+    response = {"sms": {"resp": 0, "smsSendSucc": 1, "smsSendFail": 0}}
+    client, session = authenticated_client(response)
+
+    assert client.sms.send(" +15551234567 ", "Hello\n") == response
+
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["method"] == "sms.send"
+    sms = kwargs["json"]["sms"]
+    assert sms["id"] == "-1"
+    assert sms["gsm7"] == "1"
+    assert sms["address"] == "+15551234567,"
+    assert sms["body"] == "00480065006C006C006F"
+    assert sms["protocol"] == "0"
+    assert re.fullmatch(r"\d{1,2},\d{1,2},\d{1,2},\d{1,2},\d{1,2},\d{1,2},(?:%2B|-)\d+(?:\.\d+)?", sms["date"])
+
+
+def test_sms_send_marks_non_gsm7_message_and_utf16_encodes_it():
+    response = {"sms": {"resp": "0", "smsSendSucc": "1", "smsSendFail": "0"}}
+    client, session = authenticated_client(response)
+
+    client.sms.send("+15551234567", "Hi 😊")
+
+    sms = session.calls[0][2]["json"]["sms"]
+    assert sms["gsm7"] == "0"
+    assert sms["body"] == "004800690020D83DDE0A"
+
+
+def test_sms_send_rejects_unconfirmed_response():
+    client, _ = authenticated_client(
+        {"sms": {"resp": 0, "smsSendSucc": 0, "smsSendFail": 1}}
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.sms.send("+15551234567", "Hello")
+
+    assert exc_info.value.method_id == "sms/sms.send"
+    assert exc_info.value.response == {
+        "sms": {"resp": 0, "smsSendSucc": 0, "smsSendFail": 1}
+    }
+
+
+def test_sms_send_validates_content_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="recipient must not be empty"):
+        client.sms.send("   ", "Hello")
+    with pytest.raises(ValueError, match="message must not be empty"):
+        client.sms.send("+15551234567", "\n")
+
+    assert session.calls == []
+
+
+def test_sms_delete_uses_string_id_and_verified_success_triple():
+    response = {"sms": {"resp": 0, "smsDelSucc": 1, "smsDelFail": 0}}
+    client, session = authenticated_client(response)
+
+    assert client.sms.delete("42") == response
+
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["method"] == "sms.delete"
+    assert kwargs["json"] == {"sms": {"id": "42"}}
+
+
+def test_sms_delete_accepts_integer_id():
+    response = {"sms": {"resp": "0", "smsDelSucc": "1", "smsDelFail": "0"}}
+    client, session = authenticated_client(response)
+
+    client.sms.delete(7)
+
+    assert session.calls[0][2]["json"] == {"sms": {"id": "7"}}
+
+
+def test_sms_delete_rejects_unconfirmed_response():
+    client, _ = authenticated_client(
+        {"sms": {"resp": 0, "smsDelSucc": 0, "smsDelFail": 1}}
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.sms.delete(7)
+
+    assert exc_info.value.method_id == "sms/sms.delete"
+
+
+def test_sms_delete_validates_id_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="non-negative integer"):
+        client.sms.delete("abc")
+    with pytest.raises(TypeError, match="int or numeric str"):
+        client.sms.delete(True)  # type: ignore[arg-type]
 
     assert session.calls == []
