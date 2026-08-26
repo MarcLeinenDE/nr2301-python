@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -9,6 +10,16 @@ from ..exceptions import APIError, ProtocolError
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
+
+
+_GSM7_BASIC = set(
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ"
+    " !\"#¤%&'()*+,-./"
+    "0123456789:;<=>?"
+    "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§"
+    "¿abcdefghijklmnopqrstuvwxyzäöñüà"
+)
+_GSM7_EXT = set("^{}\\[~]|€")
 
 
 class SMSBriefInfo(TypedDict, total=False):
@@ -52,8 +63,29 @@ class SMSQueryResponse(TypedDict, total=False):
     sms: SMSQueryData
 
 
+class SMSSendResult(TypedDict, total=False):
+    resp: int
+    smsSendSucc: int
+    smsSendFail: int
+    smsRef: Any
+
+
+class SMSSendResponse(TypedDict, total=False):
+    sms: SMSSendResult
+
+
+class SMSDeleteResult(TypedDict, total=False):
+    resp: int
+    smsDelSucc: int
+    smsDelFail: int
+
+
+class SMSDeleteResponse(TypedDict, total=False):
+    sms: SMSDeleteResult
+
+
 class SMSNamespace:
-    """SMS helpers whose public request contracts are fully normalized."""
+    """SMS helpers backed by the normalized public NR2301 contracts."""
 
     def __init__(self, client: NR2301Client) -> None:
         self._client = client
@@ -151,9 +183,154 @@ class SMSNamespace:
 
         return [item.strip() for item in ids.split(",") if item.strip()]
 
+    def send(
+        self,
+        recipient: str,
+        message: str,
+        *,
+        timeout: float = 100.0,
+    ) -> SMSSendResponse:
+        """Send one normal SMS using the exact verified stock-frontend contract.
+
+        `protocol="0"` is intentionally fixed because that is the normal SMS
+        flow that was live verified end-to-end. Recipient and message contents
+        are not logged or included in raised error messages.
+        """
+
+        if not isinstance(recipient, str):
+            raise TypeError("recipient must be a str")
+        if not isinstance(message, str):
+            raise TypeError("message must be a str")
+        if timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
+
+        recipient = recipient.strip()
+        message = message.rstrip("\n")
+        if not recipient:
+            raise ValueError("recipient must not be empty")
+        if not message:
+            raise ValueError("message must not be empty")
+
+        # nr2301-api documents the logical numeric values and the stock
+        # frontend's default toStringData=true wire behavior. The generic SDK
+        # transport deliberately does not stringify arbitrary numbers, so this
+        # high-level helper emits the verified wire representation explicitly.
+        payload = {
+            "sms": {
+                "id": "-1",
+                "gsm7": "1" if _is_gsm7(message) else "0",
+                "address": recipient.rstrip(",") + ",",
+                "body": _uni_encode(message),
+                "date": _sms_time(),
+                "protocol": "0",
+            }
+        }
+        response = self._client.call(
+            "sms",
+            "sms.send",
+            data=payload,
+            timeout=timeout,
+        )
+        sms = self._extract_sms(response, method_id="sms/sms.send")
+        if not (
+            _int_equals(sms.get("resp"), 0)
+            and _int_equals(sms.get("smsSendSucc"), 1)
+            and _int_equals(sms.get("smsSendFail"), 0)
+        ):
+            raise APIError(
+                "sms/sms.send did not report verified normal-SMS success",
+                method_id="sms/sms.send",
+                response=_redact_sms_response(response),
+            )
+        return cast(SMSSendResponse, response)
+
+    def delete(
+        self,
+        message_id: int | str,
+        *,
+        timeout: float | None = None,
+    ) -> SMSDeleteResponse:
+        """Delete one SMS ID and require the live-verified success triple."""
+
+        if isinstance(message_id, bool) or not isinstance(message_id, (int, str)):
+            raise TypeError("message_id must be an int or numeric str")
+        id_text = str(message_id).strip()
+        if not id_text.isdigit():
+            raise ValueError("message_id must be a non-negative integer")
+
+        response = self._client.call(
+            "sms",
+            "sms.delete",
+            data={"sms": {"id": id_text}},
+            timeout=timeout,
+        )
+        sms = self._extract_sms(response, method_id="sms/sms.delete")
+        if not (
+            _int_equals(sms.get("resp"), 0)
+            and _int_equals(sms.get("smsDelSucc"), 1)
+            and _int_equals(sms.get("smsDelFail"), 0)
+        ):
+            raise APIError(
+                "sms/sms.delete did not report verified deletion success",
+                method_id="sms/sms.delete",
+                response=response,
+            )
+        return cast(SMSDeleteResponse, response)
+
     @staticmethod
     def _extract_sms(response: Mapping[str, Any], *, method_id: str) -> Mapping[str, Any]:
         sms = response.get("sms")
         if not isinstance(sms, Mapping):
             raise ProtocolError(f"{method_id} did not return an sms object")
         return sms
+
+
+def _is_gsm7(text: str) -> bool:
+    return all(ch in _GSM7_BASIC or ch in _GSM7_EXT for ch in text)
+
+
+def _uni_encode(text: str) -> str:
+    """Match the stock frontend UniEncode: UTF-16BE code units as hex."""
+
+    return text.encode("utf-16-be", errors="surrogatepass").hex().upper()
+
+
+def _sms_time(now: dt.datetime | None = None) -> str:
+    """Match the observed frontend GetSmsTime string."""
+
+    current = now.astimezone() if now is not None else dt.datetime.now().astimezone()
+    offset = current.utcoffset() or dt.timedelta()
+    hours = offset.total_seconds() / 3600.0
+    if abs(hours - round(hours)) < 1e-9:
+        off = str(abs(int(round(hours))))
+    else:
+        off = str(abs(hours)).rstrip("0").rstrip(".")
+    timezone = ("%2B" if hours >= 0 else "-") + off
+    return (
+        f"{current.year % 100},{current.month},{current.day},"
+        f"{current.hour},{current.minute},{current.second},{timezone}"
+    )
+
+
+def _int_equals(value: Any, expected: int) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        return int(value) == expected
+    except (TypeError, ValueError):
+        return False
+
+
+def _redact_sms_response(response: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep only non-content send status fields in error details."""
+
+    sms = response.get("sms")
+    if not isinstance(sms, Mapping):
+        return {"sms": "invalid response object"}
+    return {
+        "sms": {
+            key: sms.get(key)
+            for key in ("resp", "smsSendSucc", "smsSendFail", "smsRef")
+            if key in sms
+        }
+    }
