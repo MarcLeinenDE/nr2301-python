@@ -291,3 +291,103 @@ def test_set_wps_enabled_requires_bool_before_network_access():
         client.wifi.set_wps_enabled("1")  # type: ignore[arg-type]
 
     assert session.calls == []
+
+
+
+def test_set_security_protected_mode_verifies_token_and_key():
+    before = {
+        "config": {
+            "wifi_if_24G": {
+                "ssid": "Synthetic",
+                "encryption": "psk-mixed+ccmp",
+                "key": "old-secret",
+                "hidden": "0",
+            }
+        }
+    }
+    after = {
+        "config": {
+            "wifi_if_24G": {
+                "ssid": "Synthetic",
+                "encryption": "sae",
+                "key": "new-synthetic-secret",
+                "hidden": "0",
+            }
+        }
+    }
+    client, session = authenticated_client(before, {"result": 0}, after)
+
+    result = client.wifi.set_security(
+        "wifi_if_24G",
+        "sae",
+        "new-synthetic-secret",
+        recovery_delay=0,
+    )
+
+    assert result["encryption"] == "sae"
+    assert result["key"] == "new-synthetic-secret"
+    payload = session.calls[1][2]["json"]["wifi_if_24G"]
+    assert payload["ssid"] == "Synthetic"
+    assert payload["encryption"] == "sae"
+    assert payload["key"] == "new-synthetic-secret"
+
+
+def test_set_security_open_mode_does_not_require_key_to_clear():
+    before = {
+        "config": {
+            "wifi_if_5G": {
+                "ssid": "Synthetic",
+                "encryption": "psk-mixed+ccmp",
+                "key": "retained-internal-secret",
+            }
+        }
+    }
+    after = {
+        "config": {
+            "wifi_if_5G": {
+                "ssid": "Synthetic",
+                "encryption": "none",
+                "key": "retained-internal-secret",
+            }
+        }
+    }
+    client, session = authenticated_client(before, {"result": 0}, after)
+
+    result = client.wifi.set_security("wifi_if_5G", "none", recovery_delay=0)
+
+    assert result["encryption"] == "none"
+    assert result["key"] == "retained-internal-secret"
+    payload = session.calls[1][2]["json"]["wifi_if_5G"]
+    assert payload["encryption"] == "none"
+    assert payload["key"] == "retained-internal-secret"
+
+
+def test_set_security_rejects_key_for_open_mode_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="open Wi-Fi mode does not accept a key"):
+        client.wifi.set_security("wifi_if_DUAL", "none", "should-not-be-used")
+
+    assert session.calls == []
+
+
+def test_set_security_requires_key_for_protected_mode_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="non-empty key is required"):
+        client.wifi.set_security("wifi_if_GUEST", "sae-mixed")
+
+    assert session.calls == []
+
+
+def test_set_security_rejects_unknown_token_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="unsupported/unverified Wi-Fi encryption token"):
+        client.wifi.set_security(
+            "wifi_if_24G",
+            "future-security",  # type: ignore[arg-type]
+            "synthetic-key",
+        )
+
+    assert session.calls == []

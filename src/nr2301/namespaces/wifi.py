@@ -26,12 +26,50 @@ WiFiMode = Literal[
     "2.4G 5G GUEST",
 ]
 
+WiFiSecurity = Literal[
+    "psk-mixed+ccmp",
+    "sae-mixed",
+    "sae",
+    "psk2+ccmp",
+    "psk+ccmp",
+    "psk2+tkip+ccmp",
+    "psk+tkip+ccmp",
+    "psk-mixed+tkip+ccmp",
+    "psk2+tkip",
+    "psk+tkip",
+    "psk-mixed+tkip",
+    "wep-mixed",
+    "none",
+]
+
+
 _ALLOWED_AP_SECTIONS = {
     "wifi_if_24G",
     "wifi_if_5G",
     "wifi_if_DUAL",
     "wifi_if_GUEST",
     "wifi_timed_off",
+}
+_SECURITY_AP_SECTIONS = {
+    "wifi_if_24G",
+    "wifi_if_5G",
+    "wifi_if_DUAL",
+    "wifi_if_GUEST",
+}
+_VERIFIED_WIFI_ENCRYPTION_TOKENS = {
+    "psk-mixed+ccmp",
+    "sae-mixed",
+    "sae",
+    "psk2+ccmp",
+    "psk+ccmp",
+    "psk2+tkip+ccmp",
+    "psk+tkip+ccmp",
+    "psk-mixed+tkip+ccmp",
+    "psk2+tkip",
+    "psk+tkip",
+    "psk-mixed+tkip",
+    "wep-mixed",
+    "none",
 }
 _VERIFIED_WIFI_MODES = {
     "DUAL",
@@ -323,6 +361,59 @@ class WiFiNamespace:
             payload,
             expected_mode=cast(WiFiMode, wanted),
             expected_guest=expected_guest,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+    def set_security(
+        self,
+        section: APSection,
+        encryption: WiFiSecurity,
+        key: str | None = None,
+        *,
+        write_timeout: float = 30.0,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> dict[str, Any]:
+        """Set a live-verified Wi-Fi security token and optional key.
+
+        All 13 source-known encryption tokens were physically accepted on
+        24G, 5G, DUAL and Guest AP sections on ACIY.3. Protected modes require
+        a non-empty key and verify both token and key through the existing
+        AP-section read-back path.
+
+        Open mode (``encryption="none"``) is intentionally special: ACIY.3
+        accepts the open-mode token on all four sections, but 24G/5G/DUAL do
+        not necessarily clear/read back ``key=""``. Therefore the SDK sends
+        and verifies only the encryption token for open mode rather than
+        inventing a universal empty-key invariant.
+
+        Key length/format rules are deliberately not over-validated here: the
+        public evidence proves token acceptance and representative synthetic
+        keys, but not a complete per-security-mode key-format matrix. Firmware
+        rejection remains authoritative.
+        """
+
+        if section not in _SECURITY_AP_SECTIONS:
+            raise ValueError(f"unsupported Wi-Fi security section: {section!r}")
+        if encryption not in _VERIFIED_WIFI_ENCRYPTION_TOKENS:
+            raise ValueError(f"unsupported/unverified Wi-Fi encryption token: {encryption!r}")
+
+        if encryption == "none":
+            if key not in (None, ""):
+                raise ValueError("open Wi-Fi mode does not accept a key argument")
+            changes: dict[str, Any] = {"encryption": "none"}
+        else:
+            if not isinstance(key, str) or not key:
+                raise ValueError("a non-empty key is required for protected Wi-Fi modes")
+            changes = {"encryption": encryption, "key": key}
+
+        return self.update_ap_section(
+            section,
+            changes,
             write_timeout=write_timeout,
             recovery_attempts=recovery_attempts,
             recovery_delay=recovery_delay,
