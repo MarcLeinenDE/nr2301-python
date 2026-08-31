@@ -46,6 +46,24 @@ def _restore_section(router: NR2301Client, section: str, original: dict) -> None
     assert _config(router).get(section) == original
 
 
+
+
+_WEBUI_ENUM_CASES = [
+    ("wifi_if_24G", "net_mode", ("11b", "11bg", "11bgn", "11bgnax")),
+    ("wifi_if_5G", "net_mode", ("11a", "11an", "11anac", "11anacax")),
+    ("wifi_if_24G", "bandwidth", ("HT20/HT40", "HT20", "HT40")),
+    ("wifi_if_5G", "bandwidth", ("HT20/HT40/HT80", "HT20", "HT40", "HT80")),
+]
+
+
+def _adjacent_alternate(current: str, options: tuple[str, ...]) -> str:
+    assert current in options, f"router returned {current!r}, not in the original WebUI option contract"
+    index = options.index(current)
+    if index > 0:
+        return options[index - 1]
+    return options[1]
+
+
 def _choose_24g_channel(block: dict) -> str:
     first = int(str(block["first_channel"]))
     last = int(str(block["last_channel"]))
@@ -205,3 +223,25 @@ def test_master_switch_off_and_restore() -> None:
             assert str(_config(router).get("switch")) == original
     finally:
         router.close()
+
+@pytest.mark.parametrize(
+    ("section", "field", "options"),
+    _WEBUI_ENUM_CASES,
+    ids=["24g-net-mode", "5g-net-mode", "24g-bandwidth", "5g-bandwidth"],
+)
+def test_original_webui_radio_enum_change_and_restore(
+    section: str, field: str, options: tuple[str, ...]
+) -> None:
+    router = _client()
+    try:
+        original = copy.deepcopy(_config(router)[section])
+        current = str(original[field])
+        target = _adjacent_alternate(current, options)
+        try:
+            actual = router.wifi.update_ap_section(section, {field: target})
+            assert str(actual.get(field)) == target
+        finally:
+            _restore_section(router, section, original)
+    finally:
+        router.close()
+

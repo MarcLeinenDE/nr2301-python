@@ -47,6 +47,16 @@ The earlier private NR2301 application is only a historical evidence source. Its
 
 The current USB-management-mode mutation exclusion is a temporary **test-campaign recovery constraint**, not a permanent SDK capability-policy exclusion. A verified USB-mode API may still be represented later once it can be tested without sacrificing the active recovery channel.
 
+### Jurisdiction-neutral radio capabilities
+
+This SDK is intended for worldwide use and must not hard-code Germany-, EU-, FCC-, or other jurisdiction-specific Wi-Fi channel, band or transmit-power policy merely because development/testing occurs in one country.
+
+Expose evidence-backed raw router capabilities and firmware-accepted option tokens. A capability being available through the SDK is **not** a claim that using it is lawful in every deployment. Deployment-specific regulatory policy belongs to the downstream consumer/integrator/operator and/or the router firmware's regulatory domain.
+
+Do not invent unsupported values and do not bypass firmware/hardware enforcement. If firmware rejects, masks or rewrites a radio setting, preserve and document that technical behavior upstream. Distinguish WebUI-proven option enums, runtime-advertised values, live-accepted values and exploratory candidates.
+
+Physical testing on the dedicated non-production router may exercise technically evidenced or deliberately exploratory radio settings without applying a Germany/EU policy filter. The current USB-mode exclusion remains a recovery-channel constraint, not a regulatory restriction.
+
 ### Mandatory API feedback loop
 
 Physical SDK testing is also API research. When an SDK test reveals anything not already represented accurately upstream, update `nr2301-api` as part of the same work stream.
