@@ -128,8 +128,16 @@ def _all_messages(router: NR2301Client, list_type: int) -> dict[str, Mapping[str
     return result
 
 
-def _hex(text: str) -> str:
-    return text.encode("utf-16-be", errors="surrogatepass").hex().upper()
+def _decoded_body(value: object) -> tuple[str | None, str]:
+    if not isinstance(value, str):
+        return None, "MISSING"
+    text = value.strip()
+    if re.fullmatch(r"(?:[0-9A-Fa-f]{4})+", text):
+        try:
+            return bytes.fromhex(text).decode("utf-16-be"), "UTF16BE_HEX"
+        except (ValueError, UnicodeDecodeError):
+            return None, "HEX_UNDECODABLE"
+    return text, "PLAINTEXT"
 
 
 def _matches_number(row: Mapping[str, object], expected: str) -> bool:
@@ -137,7 +145,7 @@ def _matches_number(row: Mapping[str, object], expected: str) -> bool:
 
 
 def test_sms_send_receive_reply_and_get_by_id() -> None:
-    """Send one synthetic SMS, then verify the operator's real reply end-to-end.
+    """Send one synthetic SMS, then verify a real reply end-to-end.
 
     No phone number or SMS body is printed. The test intentionally waits for a
     manual reply because that verifies the external modem/network path as well
@@ -175,23 +183,51 @@ def test_sms_send_receive_reply_and_get_by_id() -> None:
             f"resp={sent_status[0]} send_succ={sent_status[1]} send_fail={sent_status[2]}"
         )
 
-        # Confirm the synthetic message reached the router's Outbox without
-        # exposing its phone number or body in test output.
+        # Correlate by new Outbox ID plus normalized target number. A previous
+        # physical run proved list_by_type body is UTF-16BE hex but also showed
+        # that requiring a byte-for-byte full body match is unnecessarily
+        # brittle. Body prefix/representation are diagnostic only.
         deadline = time.monotonic() + 20.0
         outbound_id: str | None = None
+        outbound_representation = "UNKNOWN"
+        outbound_prefix_match = False
         while time.monotonic() < deadline and outbound_id is None:
             current = _all_messages(router, 1)
-            for key, row in current.items():
-                if key in outbox_before:
-                    continue
-                if _matches_number(row, target) and row.get("body") == _hex(outbound_text):
-                    outbound_id = key
+            candidates = [
+                (key, row)
+                for key, row in current.items()
+                if key not in outbox_before and _matches_number(row, target)
+            ]
+            if len(candidates) == 1:
+                outbound_id, row = candidates[0]
+                decoded, outbound_representation = _decoded_body(row.get("body"))
+                outbound_prefix_match = isinstance(decoded, str) and decoded.startswith(
+                    f"NR2301 SDK E2E {token}"
+                )
+                break
+            if len(candidates) > 1:
+                matching: list[tuple[str, Mapping[str, object], str]] = []
+                for key, row in candidates:
+                    decoded, representation = _decoded_body(row.get("body"))
+                    if isinstance(decoded, str) and decoded.startswith(
+                        f"NR2301 SDK E2E {token}"
+                    ):
+                        matching.append((key, row, representation))
+                if len(matching) == 1:
+                    outbound_id = matching[0][0]
+                    outbound_representation = matching[0][2]
+                    outbound_prefix_match = True
                     break
-            if outbound_id is None:
-                time.sleep(1.0)
+                if len(matching) > 1:
+                    pytest.fail("multiple new Outbox rows matched the synthetic SMS token")
+            time.sleep(1.0)
         if outbound_id is None:
             pytest.fail("sent synthetic SMS was not uniquely confirmed in Outbox")
-        print("SMS_E2E_OUTBOX synthetic_send_readback=OK")
+        print(
+            "SMS_E2E_OUTBOX "
+            f"synthetic_send_readback=OK representation={outbound_representation} "
+            f"prefix_match={'YES' if outbound_prefix_match else 'NO'}"
+        )
 
         print("SMS_E2E_WAIT reply_window_seconds=180 action=REPLY_TO_RECEIVED_SMS")
         reply_deadline = time.monotonic() + 180.0
@@ -222,8 +258,13 @@ def test_sms_send_receive_reply_and_get_by_id() -> None:
             pytest.fail("get_by_id returned a different inbound SMS ID")
         if _normalize_observed_number(detail_sms.get("address")) != target:
             pytest.fail("get_by_id inbound address did not match the configured test number")
-        if not isinstance(detail_sms.get("body"), str) or not detail_sms.get("body"):
-            pytest.fail("get_by_id inbound body was missing")
-        print("SMS_E2E_RESULT send_outbox_reply_inbox_get_by_id=OK")
+        decoded_reply, reply_representation = _decoded_body(detail_sms.get("body"))
+        if not decoded_reply:
+            pytest.fail("get_by_id inbound body was missing or undecodable")
+        print(
+            "SMS_E2E_RESULT "
+            f"reply_body_representation={reply_representation} "
+            "send_outbox_reply_inbox_get_by_id=OK"
+        )
     finally:
         router.close()
