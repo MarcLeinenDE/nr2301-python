@@ -82,6 +82,38 @@ def test_clients_validates_request_type_before_network_access():
     assert session.calls == []
 
 
+@pytest.mark.parametrize(
+    ("helper_name", "request_type"),
+    [
+        ("active_clients", "get_active_users"),
+        ("inactive_clients", "get_inactive_users"),
+        ("allow_clients", "get_allow_users"),
+        ("forbidden_clients", "get_forbidden_users"),
+    ],
+)
+def test_normalized_client_helpers_use_exact_frontend_tokens(helper_name, request_type):
+    payload = {"clients_info": []}
+    client, session = authenticated_client(payload)
+
+    helper = getattr(client.statistics, helper_name)
+    assert helper() == payload
+
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["path"] == "statistics"
+    assert kwargs["params"]["method"] == "get_conn_clients_info"
+    assert kwargs["json"] == {"request_type": request_type}
+
+
+def test_normalized_client_view_rejects_unknown_token_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="unsupported normalized"):
+        client.statistics.client_view("get_offline_users")  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
 def test_statistics_traffic_preserves_counter_values():
     payload = {
         "statistics": {
