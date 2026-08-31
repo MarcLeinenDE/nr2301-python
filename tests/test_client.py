@@ -7,6 +7,11 @@ from nr2301 import AuthenticationError, NR2301Client, ProtocolError
 from conftest import FakeResponse, FakeSession
 
 
+def test_default_management_url_is_canonical_hostname():
+    client = NR2301Client(password="secret", session=FakeSession([]))
+    assert client.transport.base_url == "http://zyxel.home"
+
+
 def test_login_performs_lockout_guard_challenge_and_establishes_session(monkeypatch):
     session = FakeSession([])
 
@@ -21,7 +26,7 @@ def test_login_performs_lockout_guard_challenge_and_establishes_session(monkeypa
     monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "abc123xy")
 
     client = NR2301Client(
-        "http://192.168.1.1",
+        "http://zyxel.home",
         username="admin",
         password="secret",
         session=session,
@@ -49,6 +54,21 @@ def test_login_performs_lockout_guard_challenge_and_establishes_session(monkeypa
         "password": expected_digest,
         "user_id": "abc123xy",
     }
+
+
+def test_login_reports_canonical_host_hint_for_direct_ip_result4():
+    session = FakeSession([
+        FakeResponse({"result": 4}),
+    ])
+    client = NR2301Client("http://192.168.1.1", password="secret", session=session)
+
+    with pytest.raises(AuthenticationError) as exc:
+        client.login()
+
+    assert exc.value.result == 4
+    assert "http://zyxel.home" in str(exc.value)
+    assert "192.168.1.1" in str(exc.value)
+    assert len(session.calls) == 1
 
 
 def test_login_aborts_when_router_reports_lockout_time():
