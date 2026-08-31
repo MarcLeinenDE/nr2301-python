@@ -90,10 +90,6 @@ def _all_drafts(router: NR2301Client) -> dict[str, Mapping[str, object]]:
     return result
 
 
-def _hex(text: str) -> str:
-    return text.encode("utf-16-be", errors="surrogatepass").hex().upper()
-
-
 def _decoded_body(value: object) -> tuple[str | None, str]:
     if not isinstance(value, str):
         return None, "MISSING"
@@ -152,16 +148,31 @@ def _assert_detail(
     *,
     draft_id: str,
     expected_body: str,
+    label: str,
 ) -> None:
     if str(detail_sms.get("id", "")).strip() != draft_id:
         pytest.fail("get_by_id returned a different draft ID")
-    if detail_sms.get("body") != _hex(expected_body):
-        pytest.fail("get_by_id body did not match the synthetic draft")
 
-    # The exact save wire request uses a trailing comma. Accept either list/detail
-    # presentation until physical evidence establishes whether the router strips it.
-    if _address_form(detail_sms.get("address")) not in {"BARE", "TRAILING_COMMA"}:
+    decoded, representation = _decoded_body(detail_sms.get("body"))
+    exact_match = decoded == expected_body
+    prefix_match = isinstance(decoded, str) and decoded.startswith(
+        "NR2301 SDK draft test "
+    )
+    decoded_length = len(decoded) if isinstance(decoded, str) else -1
+    print(
+        f"SMS_GET_BY_ID_BODY phase={label} representation={representation} "
+        f"synthetic_prefix_match={'YES' if prefix_match else 'NO'} "
+        f"exact_text_match={'YES' if exact_match else 'NO'} "
+        f"decoded_length={decoded_length} expected_length={len(expected_body)}"
+    )
+    if not exact_match:
+        pytest.fail("get_by_id decoded body did not match the synthetic draft")
+
+    address_form = _address_form(detail_sms.get("address"))
+    print(f"SMS_GET_BY_ID_ADDRESS phase={label} address_form={address_form}")
+    if address_form not in {"BARE", "TRAILING_COMMA"}:
         pytest.fail("get_by_id address did not match the synthetic draft")
+
     try:
         detail_type = int(detail_sms.get("type", -1))
     except (TypeError, ValueError):
@@ -214,11 +225,13 @@ def test_sms_draft_create_get_update_delete_roundtrip() -> None:
         detail_sms = _sms_object(detail)
         safe_fields = ",".join(sorted(str(key) for key in detail_sms.keys()))
         print(f"SMS_GET_BY_ID fields={safe_fields or '-'}")
-        _assert_detail(detail_sms, draft_id=draft_id, expected_body=_DRAFT_V1)
-        print(
-            "SMS_GET_BY_ID synthetic_draft_readback=OK "
-            f"address_form={_address_form(detail_sms.get('address'))}"
+        _assert_detail(
+            detail_sms,
+            draft_id=draft_id,
+            expected_body=_DRAFT_V1,
+            label="create",
         )
+        print("SMS_GET_BY_ID synthetic_draft_readback=OK")
 
         updated = router.sms.save_draft(
             _SYNTHETIC_RECIPIENT,
@@ -231,7 +244,12 @@ def test_sms_draft_create_get_update_delete_roundtrip() -> None:
         )
 
         updated_detail = _sms_object(router.sms.get_by_id(draft_id))
-        _assert_detail(updated_detail, draft_id=draft_id, expected_body=_DRAFT_V2)
+        _assert_detail(
+            updated_detail,
+            draft_id=draft_id,
+            expected_body=_DRAFT_V2,
+            label="update",
+        )
         print("SMS_DRAFT_STATE update_readback=OK")
 
     finally:
