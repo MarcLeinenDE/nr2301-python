@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import string
 
 LOGIN_RESULTS = {
     0: "username or password error",
@@ -17,9 +18,15 @@ LOGIN_RESULTS = {
 
 
 def generate_user_id() -> str:
-    """Generate a random client value for the observed login challenge flow."""
+    """Generate the verified frontend-compatible login client identifier.
 
-    return secrets.token_hex(16)
+    Historical live-working NR2301 clients used exactly eight lowercase
+    alphanumeric characters for the `user_id` passed to `account/get_rand`
+    and the subsequent `account/login` request.
+    """
+
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
 def challenge_response(rand: str, plaintext_password: str) -> str:
