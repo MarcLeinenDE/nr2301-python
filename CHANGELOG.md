@@ -34,10 +34,12 @@
 - complete-SDK-coverage goal plus mandatory feedback of every new physical SDK finding into `nr2301-api`
 - sanitized `examples/diagnose_auth_transport.py` probe that compares current requests transport with the historically working compact/header shape and an urllib reproduction without reading or transmitting the administrator password
 - `tests/integration/test_reversible_writes.py`, hard-gated by `NR2301_WRITE_INTEGRATION=1`, covering data-roaming, available network-mode, WPS and Wi-Fi Guest/combined-vs-separate transitions with `try/finally` restoration and final exact read-back
+- `tests/integration/test_lan_dns_write.py`, hard-gated by `NR2301_WRITE_INTEGRATION=1`, exercising the combined 12-field DHCP/DNS setter while asserting that all non-DNS fields remain unchanged and the complete original object is restored exactly
 
 ### Physical validation
 
 - first full read-only physical SDK smoke completed successfully on 2026-08-31 against the USB-connected NR2301 using Python 3.13.5 and `http://zyxel.home`: all 8 integration groups passed in 4.01 s (version, device health, SIM, mobile, LAN/DNS, Wi-Fi, SMS summary and statistics)
+- first reversible physical write suite completed successfully on 2026-08-31: all 4 tests passed in 51.09 s, covering data-roaming toggle/restore, one router-reported alternative network-mode change/restore, WPS toggle/restore, and Wi-Fi Guest plus combined/separate state-machine transitions with final original-state restoration
 
 ### Fixed / corrected
 
@@ -50,8 +52,7 @@
 
 ### Current research backlog
 
-- run the first hard-gated reversible-write suite on the dedicated physical router and feed every resulting live finding back into `nr2301-api`
-- add the next reversible block for the combined LAN/DHCP/DNS setter after the lower-impact write framework is physically confirmed
+- run the hard-gated combined LAN/DHCP/DNS physical write test and feed any new transport/recovery evidence back into `nr2301-api`
 - expand physical coverage into separately gated disruptive/recovery tests
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
 - research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
