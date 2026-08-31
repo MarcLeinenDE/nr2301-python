@@ -110,12 +110,22 @@ def _address_form(value: object) -> str:
     return "OTHER"
 
 
+def _body_class(value: object) -> tuple[str, str]:
+    decoded, representation = _decoded_body(value)
+    if decoded == _DRAFT_V1:
+        return "A", representation
+    if decoded == _DRAFT_V2:
+        return "B", representation
+    if isinstance(decoded, str) and decoded.startswith("NR2301 SDK draft test "):
+        return "SYNTHETIC_OTHER", representation
+    return "OTHER", representation
+
+
 def _row_is_synthetic(row: Mapping[str, object]) -> bool:
-    decoded, _ = _decoded_body(row.get("body"))
+    body_class, _ = _body_class(row.get("body"))
     return (
         _address_form(row.get("address")) in {"BARE", "TRAILING_COMMA"}
-        and isinstance(decoded, str)
-        and decoded.startswith("NR2301 SDK draft test ")
+        and body_class in {"A", "B", "SYNTHETIC_OTHER"}
     )
 
 
@@ -143,135 +153,151 @@ def _delete_status(response: Mapping[str, object]) -> tuple[int, int, int]:
         pytest.fail("draft delete returned non-integer status fields")
 
 
-def _assert_detail(
+def _detail_profile(
     detail_sms: Mapping[str, object],
     *,
-    draft_id: str,
-    expected_body: str,
-    label: str,
-) -> None:
-    if str(detail_sms.get("id", "")).strip() != draft_id:
+    expected_id: str,
+    phase: str,
+) -> str:
+    if str(detail_sms.get("id", "")).strip() != expected_id:
         pytest.fail("get_by_id returned a different draft ID")
 
-    decoded, representation = _decoded_body(detail_sms.get("body"))
-    exact_match = decoded == expected_body
-    prefix_match = isinstance(decoded, str) and decoded.startswith(
-        "NR2301 SDK draft test "
-    )
+    body_class, representation = _body_class(detail_sms.get("body"))
+    decoded, _ = _decoded_body(detail_sms.get("body"))
     decoded_length = len(decoded) if isinstance(decoded, str) else -1
-    print(
-        f"SMS_GET_BY_ID_BODY phase={label} representation={representation} "
-        f"synthetic_prefix_match={'YES' if prefix_match else 'NO'} "
-        f"exact_text_match={'YES' if exact_match else 'NO'} "
-        f"decoded_length={decoded_length} expected_length={len(expected_body)}"
-    )
-    if not exact_match:
-        pytest.fail("get_by_id decoded body did not match the synthetic draft")
-
     address_form = _address_form(detail_sms.get("address"))
-    print(f"SMS_GET_BY_ID_ADDRESS phase={label} address_form={address_form}")
-    if address_form not in {"BARE", "TRAILING_COMMA"}:
-        pytest.fail("get_by_id address did not match the synthetic draft")
-
     try:
         detail_type = int(detail_sms.get("type", -1))
     except (TypeError, ValueError):
         pytest.fail("get_by_id type was not numeric")
+
+    print(
+        f"SMS_DRAFT_DETAIL phase={phase} body_class={body_class} "
+        f"representation={representation} decoded_length={decoded_length} "
+        f"address_form={address_form} type={detail_type}"
+    )
+    if address_form not in {"BARE", "TRAILING_COMMA"}:
+        pytest.fail("get_by_id address did not match the synthetic draft")
     if detail_type != 2:
         pytest.fail("get_by_id did not report draft type=2")
+    return body_class
 
 
 def test_sms_draft_create_get_update_delete_roundtrip() -> None:
     router = _client()
-    draft_id: str | None = None
     before_ids: set[str] = set()
+    created_id: str | None = None
     try:
         before = _all_drafts(router)
         before_ids = set(before)
         print(f"SMS_DRAFT_STATE before_count={len(before)}")
 
         created = router.sms.save_draft(_SYNTHETIC_RECIPIENT, _DRAFT_V1)
-        resp, succ, fail = _save_status(created)
+        create_status = _save_status(created)
         print(
-            f"SMS_DRAFT_ACTION create resp={resp} save_succ={succ} save_fail={fail}"
+            "SMS_DRAFT_ACTION create "
+            f"resp={create_status[0]} save_succ={create_status[1]} save_fail={create_status[2]}"
         )
+        if create_status != (0, 1, 0):
+            pytest.fail("new Draft save did not return the verified success triple")
 
         after_create = _all_drafts(router)
-        new_ids = set(after_create) - before_ids
-        if len(new_ids) != 1:
+        create_new_ids = set(after_create) - before_ids
+        if len(create_new_ids) != 1:
             pytest.fail("draft create did not produce exactly one new Draft ID")
-        draft_id = next(iter(new_ids))
+        created_id = next(iter(create_new_ids))
         print("SMS_DRAFT_STATE created_id_detected=OK")
 
-        created_row = after_create[draft_id]
-        decoded, representation = _decoded_body(created_row.get("body"))
-        prefix_match = isinstance(decoded, str) and decoded.startswith(
-            "NR2301 SDK draft test "
-        )
+        created_row = after_create[created_id]
+        list_class, list_representation = _body_class(created_row.get("body"))
         address_form = _address_form(created_row.get("address"))
         try:
             draft_type = int(created_row.get("type", -1))
         except (TypeError, ValueError):
             pytest.fail("created draft type was not numeric")
         print(
-            "SMS_DRAFT_LIST "
-            f"address_form={address_form} body_representation={representation} "
-            f"synthetic_prefix_match={'YES' if prefix_match else 'NO'} type={draft_type}"
+            "SMS_DRAFT_LIST phase=create "
+            f"address_form={address_form} body_class={list_class} "
+            f"body_representation={list_representation} type={draft_type}"
         )
-        if draft_type != 2:
-            pytest.fail("created draft did not read back type=2")
+        if list_class != "A" or draft_type != 2:
+            pytest.fail("created Draft list row did not contain the expected synthetic Draft")
 
-        detail = router.sms.get_by_id(draft_id)
-        detail_sms = _sms_object(detail)
-        safe_fields = ",".join(sorted(str(key) for key in detail_sms.keys()))
+        create_detail = _sms_object(router.sms.get_by_id(created_id))
+        safe_fields = ",".join(sorted(str(key) for key in create_detail.keys()))
         print(f"SMS_GET_BY_ID fields={safe_fields or '-'}")
-        _assert_detail(
-            detail_sms,
-            draft_id=draft_id,
-            expected_body=_DRAFT_V1,
-            label="create",
-        )
-        print("SMS_GET_BY_ID synthetic_draft_readback=OK")
+        if _detail_profile(create_detail, expected_id=created_id, phase="create") != "A":
+            pytest.fail("created Draft detail did not contain body A")
 
         updated = router.sms.save_draft(
             _SYNTHETIC_RECIPIENT,
             _DRAFT_V2,
-            message_id=draft_id,
+            message_id=created_id,
         )
-        resp, succ, fail = _save_status(updated)
+        update_status = _save_status(updated)
         print(
-            f"SMS_DRAFT_ACTION update resp={resp} save_succ={succ} save_fail={fail}"
+            "SMS_DRAFT_ACTION existing_id_save "
+            f"resp={update_status[0]} save_succ={update_status[1]} save_fail={update_status[2]}"
+        )
+        if update_status != (0, 1, 0):
+            pytest.fail("existing-ID Draft save did not return the verified success triple")
+
+        after_update = _all_drafts(router)
+        update_new_ids = set(after_update) - set(after_create)
+        original_detail = _sms_object(router.sms.get_by_id(created_id))
+        original_class = _detail_profile(
+            original_detail,
+            expected_id=created_id,
+            phase="after_existing_id_save_original",
         )
 
-        updated_detail = _sms_object(router.sms.get_by_id(draft_id))
-        _assert_detail(
-            updated_detail,
-            draft_id=draft_id,
-            expected_body=_DRAFT_V2,
-            label="update",
+        new_classes: list[str] = []
+        for index, message_id in enumerate(sorted(update_new_ids, key=int), start=1):
+            detail = _sms_object(router.sms.get_by_id(message_id))
+            new_classes.append(
+                _detail_profile(
+                    detail,
+                    expected_id=message_id,
+                    phase=f"after_existing_id_save_new_{index}",
+                )
+            )
+
+        if original_class == "B" and not update_new_ids:
+            behavior = "IN_PLACE"
+        elif original_class == "A" and len(update_new_ids) == 1 and new_classes == ["B"]:
+            behavior = "COPY_ON_SAVE"
+        else:
+            behavior = "UNRESOLVED"
+
+        print(
+            "SMS_DRAFT_UPDATE_SEMANTICS "
+            f"behavior={behavior} original_body_class={original_class} "
+            f"new_id_count={len(update_new_ids)} "
+            f"new_body_classes={','.join(new_classes) if new_classes else '-'}"
         )
-        print("SMS_DRAFT_STATE update_readback=OK")
+        if behavior == "UNRESOLVED":
+            pytest.fail("existing-ID sms.save produced an unresolved Draft state transition")
 
     finally:
-        # Clean up only this run's newly-created ID or rows carrying the synthetic
-        # draft prefix. Never delete a pre-existing unrelated draft.
-        cleanup_ids: set[str] = set()
-        if draft_id is not None:
-            cleanup_ids.add(draft_id)
+        # Delete only Draft IDs created after this test's initial snapshot and
+        # carrying the synthetic Draft marker. Never touch pre-existing Drafts.
         try:
             current = _all_drafts(router)
-            for key, row in current.items():
-                if key not in before_ids and _row_is_synthetic(row):
-                    cleanup_ids.add(key)
-
-            for key in sorted(cleanup_ids):
-                if key not in current:
-                    continue
+            cleanup_ids = [
+                key
+                for key, row in current.items()
+                if key not in before_ids and _row_is_synthetic(row)
+            ]
+            print(f"SMS_DRAFT_CLEANUP candidate_count={len(cleanup_ids)}")
+            for key in sorted(cleanup_ids, key=int):
                 deleted = router.sms.delete(key)
-                resp, succ, fail = _delete_status(deleted)
+                status = _delete_status(deleted)
                 print(
-                    f"SMS_DRAFT_CLEANUP delete resp={resp} del_succ={succ} del_fail={fail}"
+                    "SMS_DRAFT_CLEANUP delete "
+                    f"resp={status[0]} del_succ={status[1]} del_fail={status[2]}"
                 )
+                if status != (0, 1, 0):
+                    pytest.fail("synthetic Draft cleanup delete did not report success")
 
             final = _all_drafts(router)
             leftovers = [key for key in cleanup_ids if key in final]
