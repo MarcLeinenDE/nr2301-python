@@ -137,6 +137,43 @@ def _recover_login(router: NR2301Client, *, attempts: int = 45, delay: float = 2
     )
 
 
+def _wait_for_stable_sim_state(
+    router: NR2301Client,
+    *,
+    pin_attempts: int,
+    puk_attempts: int,
+    attempts: int = 30,
+    delay: float = 1.0,
+) -> dict[str, int | str | None]:
+    """Wait until the SIM subsystem has finished its post-boot initialization."""
+
+    last: dict[str, int | str | None] | None = None
+    last_type = "none"
+    for index in range(1, attempts + 1):
+        try:
+            state = _state(router)
+            last = state
+            if (
+                state.get("sim_status") == 1
+                and state.get("pin_enabled") == 1
+                and state.get("pin_status") in (2, 5)
+                and state.get("pin_attempts") == pin_attempts
+                and state.get("puk_attempts") == puk_attempts
+            ):
+                print(f"ROUTER_RECOVERY sim_state=STABLE attempt={index}")
+                return state
+        except (TransportError, AuthenticationError, ProtocolError) as exc:
+            last_type = type(exc).__name__
+        time.sleep(delay)
+
+    if last is not None:
+        _print_state("post_reboot_unstable", last)
+    pytest.fail(
+        "management recovered but SIM state did not stabilize to a known ready/PIN-required state; "
+        f"provide_pin will not be sent; last_exception_type={last_type}"
+    )
+
+
 def test_sim_provide_pin_after_reboot_and_restore() -> None:
     pin = _pin()
     router = _client()
@@ -188,17 +225,17 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
         _recover_login(router)
         recovered_after_reboot = True
 
-        locked = _state(router)
+        locked = _wait_for_stable_sim_state(
+            router,
+            pin_attempts=pin_attempts,
+            puk_attempts=puk_attempts,
+        )
         _print_state("after_reboot", locked)
-        assert locked["sim_status"] == 1
-        assert locked["pin_enabled"] == 1
-        assert locked["pin_attempts"] == pin_attempts
-        assert locked["puk_attempts"] == puk_attempts
 
         if locked["pin_status"] != 2:
             pytest.fail(
-                "router recovered after a confirmed management outage but SIM did not report "
-                "pin_status=2 (PIN required); provide_pin was intentionally NOT sent"
+                "router recovered after a confirmed outage but stable SIM state was already "
+                "pin_status=5 (Ready); provide_pin was intentionally NOT sent"
             )
 
         provide_attempted = True
