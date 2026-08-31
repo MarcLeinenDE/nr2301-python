@@ -214,3 +214,16 @@ The goal is complete protocol evidence, not publication of the maintainer's real
 ## CI behavior
 
 GitHub Actions does not set any `NR2301_*_INTEGRATION` physical-test flag, so physical-router modules are skipped and no network attempt is made toward the default router host.
+
+## Completed physical Wireless action coverage — 2026-08-31
+
+The dedicated-router WPS action test passed end-to-end in `1.44 s`:
+
+```text
+PBC              -> wireless.wps_call_pbc_result = OK
+Cancel after PBC -> top-level wps_call_cancel_result = OK
+PIN 12345670     -> wireless.wps_call_pin_result = OK
+Cancel after PIN -> top-level wps_call_cancel_result = OK
+```
+
+The original WPS-enable state was restored. Together with the preceding Wi-Fi configuration/security campaigns, the 14-method public `wireless` API namespace now has explicit SDK surface coverage and physical end-to-end evidence for its action wrappers.

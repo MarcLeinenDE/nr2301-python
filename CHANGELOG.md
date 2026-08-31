@@ -45,6 +45,7 @@
 
 ### Physical validation
 
+- WPS action integration passed on 2026-08-31 in 1.44 s: PBC returned nested `wireless.wps_call_pbc_result=OK`, Cancel returned flat top-level `wps_call_cancel_result=OK`, PIN `12345670` returned nested `wireless.wps_call_pin_result=OK`, the second Cancel was again flat/OK, and the original WPS-enable state was restored
 - complete Wi-Fi security matrix finished on 2026-08-31: 52/52 section/token combinations accepted; every protected mode round-tripped the synthetic key on all four AP sections, open mode exposed section-specific key-field behavior, and `password_modified` remained 0 throughout
 - extended Wi-Fi capability suite passed on 2026-08-31: all 18 cases passed in 226.96 s, confirming raw `power_level` values 0/1/2, global and Guest maxassoc=1, Guest 2.4G/5G band mode, synthetic SSID writes on all four AP blocks, 2.4-GHz channel 13, 5-GHz channels 52/100/140 including DFS-class paths, every source-known WebUI net-mode/bandwidth token, and normal-admin `wifi_scan`, with original state restored after every mutation
 - comprehensive Wi-Fi field suite passed on 2026-08-31: all 15 cases passed in 178.96 s, covering representative 2.4/5-GHz fixed channels, Hidden on 24G/5G/DUAL/Guest, AP isolation on both bands, global maxassoc, timed-off persistence, master Wi-Fi switch, per-band net-mode and bandwidth changes, with exact read-back and final original-state restoration
@@ -54,6 +55,7 @@
 
 ### Fixed / corrected
 
+- fixed WPS action response handling after physical ACIY.3 evidence showed action-specific response envelopes: PBC/PIN return their `OK` results under `wireless`, while Cancel returns flat top-level `wps_call_cancel_result=OK`; helpers accept either physically evidenced envelope while still requiring the exact action result
 - corrected Wi-Fi restore semantics after physical security-matrix evidence showed `cur_channel` can legitimately differ after restoring configured auto-channel state; physical restore helpers now compare only mutable configuration and exclude runtime/capability metadata (`cur_channel`, `first_channel`, `last_channel`, `channel_list`)
 - hardened physical Wi-Fi restore assertions so a failed restore reports only mismatching field names instead of allowing pytest to render complete AP dictionaries containing real SSIDs/keys
 - hardened Wi-Fi write diagnostics so SSID/key/password-like fields are redacted from verification failures, and added a recovery/read-back helper for top-level Wi-Fi settings used by the physical capability campaign
@@ -77,7 +79,3 @@
 - keep USB-mode mutation out of physical coverage while USB is the active control/recovery channel
 
 The SDK started from immutable `nr2301-api v0.1.0`; the newest normalized contracts track the API repository's `0.1.1.dev0` development state on `main`.
-
-### Fixed
-
-- fixed WPS action response handling after physical ACIY.3 evidence showed `wifi_call_wps_cancel` returning a flat top-level `wps_call_cancel_result` while PBC returned its result under `wireless`; helpers now accept either evidenced envelope but still require the action result to be exactly `OK`
