@@ -25,7 +25,10 @@ def router():
     if not password:
         pytest.skip("NR2301_PASSWORD is required for physical-router integration tests")
 
-    base_url = os.environ.get("NR2301_URL", "http://192.168.1.1")
+    # The tested firmware resolves zyxel.home to 192.168.1.1 but treats
+    # administrator pre-auth calls differently by HTTP host/authority. The
+    # canonical hostname succeeds; the direct IP returns result=4.
+    base_url = os.environ.get("NR2301_URL", "http://zyxel.home")
     username = os.environ.get("NR2301_USERNAME", "admin")
 
     with NR2301Client(
