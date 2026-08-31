@@ -241,12 +241,16 @@ class SMSNamespace:
         message_id: int | str = -1,
         timeout: float = 100.0,
     ) -> SMSSaveResponse:
-        """Create or update a normal-protocol SMS draft.
+        """Save a normal-protocol SMS draft using the shipped frontend contract.
 
         The exact live-verified draft contract uses type=2 and protocol=0.
-        `message_id=-1` creates a new draft; an existing non-negative ID
-        updates that draft. Recipient/message values are never included in
-        SDK-generated error metadata.
+        `message_id=-1` creates a new Draft. The shipped frontend passes the
+        current Draft ID when saving an edited Draft, but on the physically
+        tested ACIY.3 firmware that existing-ID path is COPY_ON_SAVE: the
+        original Draft remains unchanged and a new Draft ID is created. Do
+        not assume in-place update semantics on other firmware without
+        evidence. Recipient/message values are never included in SDK-generated
+        error metadata.
         """
 
         if not isinstance(recipient, str):

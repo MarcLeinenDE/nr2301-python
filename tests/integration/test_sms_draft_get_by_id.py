@@ -183,7 +183,7 @@ def _detail_profile(
     return body_class
 
 
-def test_sms_draft_create_get_update_delete_roundtrip() -> None:
+def test_sms_draft_create_get_existing_id_copy_delete_roundtrip() -> None:
     router = _client()
     before_ids: set[str] = set()
     created_id: str | None = None

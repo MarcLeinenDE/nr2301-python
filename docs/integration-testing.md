@@ -287,3 +287,22 @@ The initial E2E test failed only at an overly strict Outbox full-body equality a
 
 The inbound row was observed with `read=0` before `get_by_id`, but no second Inbox read was made afterwards. This campaign therefore does **not** claim that `get_by_id` actually changed the read state; the existing side-effect warning remains conservative.
 
+## SMS Draft existing-ID semantics — 2026-08-31
+
+The public SDK physically profiled `client.sms.save_draft(..., message_id=<existing Draft ID>)` on ACIY.3. The shipped frontend does send the current Draft ID when saving an edited Draft, but the tested firmware did not mutate that record in place:
+
+```text
+create Draft A                    success 0/1/0
+get_by_id(original ID)            body class A
+save Draft B with original ID     success 0/1/0
+get_by_id(original ID)            still body class A
+new Draft IDs                     exactly 1
+get_by_id(new ID)                 body class B
+behavior                          COPY_ON_SAVE
+cleanup                           both synthetic IDs deleted
+```
+
+The Draft list and Draft `get_by_id` responses returned bare addresses (without the trailing comma used on the save wire), UTF-16BE-hex bodies and `type=2`. Tests log only representation/body classes and never recipient or body values.
+
+The SDK keeps the `message_id` parameter because it is part of the source-backed capability contract, but callers must not assume that an existing ID means in-place update on every firmware.
+
