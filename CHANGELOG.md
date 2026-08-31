@@ -36,14 +36,16 @@
 
 ### Fixed / corrected
 
+- changed the default management URL from direct `http://192.168.1.1` to canonical `http://zyxel.home` after physical USB A/B testing proved administrator pre-auth is host/authority sensitive on firmware `V1.00(ACIY.3)C0`; both names resolve to the same IP, but the direct-IP path returns `result=4` while `zyxel.home` returns normal pre-auth success
+- added a targeted authentication error hint when the tested direct management IP returns `result=4`, pointing callers to `http://zyxel.home`
 - restored the historically live-working administrator login `user_id` shape to eight lowercase alphanumeric characters (`[a-z0-9]{8}`) instead of the initial SDK's invented 32-character hexadecimal value
-- corrected the interim hypothesis that the 32-character user-id caused the current physical `account/get_rand result=4`: the 2026-08-31 USB retest with the historical eight-character shape produced the same result, so the current cause remains unresolved
+- corrected the interim hypothesis that the 32-character user-id caused the physical `account/get_rand result=4`: the historical eight-character format also failed through the direct IP and then succeeded through `zyxel.home`, proving host/authority selection was the relevant difference in the controlled test
 - restored the pre-login `account/get_retrytimes_and_time` guard so the SDK waits on an active lockout and refuses to consume the final remaining password attempt
 - kept the 0..6 login result mapping scoped to `account/login`; `account/get_rand.result` is not interpreted through that table without endpoint-specific evidence
 
 ### Current research backlog
 
-- resolve the physical USB `account/get_rand result=4` by comparing the exact historical transport/request behavior against the current SDK request before changing more authentication semantics
+- complete the first physical read-only SDK integration run using the canonical `zyxel.home` management host
 - expand physical coverage from the read-only smoke suite into separately gated reversible-write and disruptive/recovery suites
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
 - research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
