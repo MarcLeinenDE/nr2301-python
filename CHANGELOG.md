@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- completed a real external SMS E2E through the public SDK: `send()` returned the verified 0/1/0 success triple and the handset physically received the message; the handset reply appeared as a new Inbox item and `get_by_id()` returned the complete documented response field set; Inbox/Outbox bodies were observed as UTF-16BE hex with phone number/content kept out of logs
 - added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors
 ### Added
 
@@ -47,6 +48,7 @@
 
 ### Physical validation
 
+- public-SDK SMS E2E completed on 2026-08-31: `send()` returned `resp=0/smsSendSucc=1/smsSendFail=0`, physical handset receipt was confirmed, the real handset reply appeared as a new Inbox item, and `get_by_id()` returned fields `address,body,contact_id,date,id,location,protocol,read,resp,status,type`; Inbox/Outbox bodies were decodable as UTF-16BE hex and all phone numbers/message contents were excluded from logs
 - SIM `provide_pin` lifecycle test passed on 2026-08-31 in 76.02 s: after enabling PIN protection, a real reboot outage was confirmed, administrator login recovered on attempt 27, the SIM stabilized at `pin_status=2`, one known-correct local PIN returned `response.setting_response=OK`, read-back returned to `pin_status=5`, retry counters remained 3/10, and PIN protection was restored to disabled
 - WPS action integration passed on 2026-08-31 in 1.44 s: PBC returned nested `wireless.wps_call_pbc_result=OK`, Cancel returned flat top-level `wps_call_cancel_result=OK`, PIN `12345670` returned nested `wireless.wps_call_pin_result=OK`, the second Cancel was again flat/OK, and the original WPS-enable state was restored
 - complete Wi-Fi security matrix finished on 2026-08-31: 52/52 section/token combinations accepted; every protected mode round-tripped the synthetic key on all four AP sections, open mode exposed section-specific key-field behavior, and `password_modified` remained 0 throughout
@@ -77,7 +79,6 @@
 - SIM `enable_pin`, `disable_pin`, `change_pin` and `provide_pin` are physically verified with known local credentials and unchanged retry budgets; keep `reset_pin_using_puk` recovery-only rather than manufacturing a blocked SIM merely for coverage
 - `sim/get_lock_info` remains without a stable high-level JSON helper because the tested firmware returned HTTP 200 with an empty response body; revisit with targeted physical evidence
 - normalize exact raw `statistics/get_conn_clients_info.request_type` tokens before adding semantic aliases
-- normalize remaining SMS draft-save/get-by-ID contracts before adding convenience helpers
 - close the ACIY.3 Guest-isolation getter/setter asymmetry before exposing an independent isolation helper
 - keep USB-mode mutation out of physical coverage while USB is the active control/recovery channel
 

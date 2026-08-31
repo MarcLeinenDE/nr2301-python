@@ -94,6 +94,22 @@ Each test uses `try/finally` so restoration is attempted even when an intermedia
 
 The read-only `NR2301_INTEGRATION=1` flag must never enable these tests.
 
+
+### Extra gate for external SMS transmission
+
+Physical tests that actually transmit an SMS to the mobile network require an additional explicit opt-in beyond the normal Level-2 write flag:
+
+```text
+NR2301_SMS_EXTERNAL_INTEGRATION=1
+NR2301_SMS_TEST_NUMBER=<operator-controlled handset number>
+```
+
+The reusable E2E test is `tests/integration/test_sms_end_to_end_reply.py`. It requires both `NR2301_WRITE_INTEGRATION=1` and `NR2301_SMS_EXTERNAL_INTEGRATION=1`, so ordinary reversible-write testing cannot send an external SMS accidentally.
+
+For the current maintainer test environment only, the integration test accepts a German national-format number such as `0176...` and converts it locally to `+49176...`. This is a test-harness convenience, **not** SDK number-normalization policy; `client.sms.send()` remains country-neutral and sends the recipient supplied by the caller.
+
+The test never prints the phone number or SMS body. It correlates the newly created Outbox row primarily by new message ID plus normalized target address. Body content is only secondary evidence because a byte-exact full-body comparison proved unnecessarily brittle during the first real E2E run.
+
 ### Level 3 — disruptive / reset-capable
 
 Opt-in reserved for operations that can interrupt management/service or deliberately lose state:
@@ -249,3 +265,25 @@ final                      pin_enabled=0  pin_status=5  retries=3/10
 A key reboot-timing finding is that `router_call_reboot` may interrupt its own HTTP request several seconds before shutdown actually begins. Physical lifecycle tests therefore require an observed management outage before accepting a later login as recovery, and they wait for a stable SIM state before deciding whether a PIN submission is appropriate.
 
 `reset_pin_using_puk` remains intentionally unexercised: obtaining PUK evidence would require a legitimately blocked SIM or deliberately exhausting PIN retries. The campaign does not manufacture that failure state merely for coverage.
+
+## Completed physical SMS SDK exchange coverage — 2026-08-31
+
+A real external exchange now verifies the complete public-SDK path without retaining message content or phone numbers in repository evidence:
+
+```text
+existing Inbox count                 1
+client.sms.send()                    resp=0 / smsSendSucc=1 / smsSendFail=0
+physical handset receipt             confirmed by operator
+handset reply                        appeared as new router Inbox item
+reply read flag before get_by_id     0
+client.sms.get_by_id(reply_id)       success
+observed response fields             address, body, contact_id, date, id,
+                                     location, protocol, read, resp, status, type
+Outbox list body representation      UTF-16BE hexadecimal
+inbound get_by_id body representation UTF-16BE hexadecimal
+```
+
+The initial E2E test failed only at an overly strict Outbox full-body equality assertion despite successful physical delivery. A read-only recovery pass confirmed the expected synthetic message prefix and the real inbound reply. The reusable E2E test was therefore hardened to correlate primarily by newly appearing ID plus target address, with content prefix only as secondary disambiguation.
+
+The inbound row was observed with `read=0` before `get_by_id`, but no second Inbox read was made afterwards. This campaign therefore does **not** claim that `get_by_id` actually changed the read state; the existing side-effect warning remains conservative.
+
