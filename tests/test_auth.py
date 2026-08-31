@@ -1,8 +1,14 @@
 import hashlib
+import re
 
 import pytest
 
-from nr2301.auth import challenge_response, login_result_text
+from nr2301.auth import challenge_response, generate_user_id, login_result_text
+
+
+def test_generate_user_id_matches_verified_frontend_compatible_shape():
+    user_id = generate_user_id()
+    assert re.fullmatch(r"[a-z0-9]{8}", user_id)
 
 
 def test_challenge_response_matches_protocol_formula():
