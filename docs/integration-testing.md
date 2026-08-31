@@ -56,6 +56,14 @@ It also deliberately avoids several sensitive read surfaces during routine smoke
 
 The smoke suite reads only non-secret/status-oriented surfaces such as version, runtime health, internet diagnostics, battery state, SIM/PIN status, mobile-network status, LAN/DNS state, basic Wi-Fi/WPS status, SMS counts and traffic counters.
 
+Physical USB result on 2026-08-31 using Python 3.13.5 and `http://zyxel.home`:
+
+```text
+8 passed in 4.01s
+```
+
+The passing groups were version, device health, SIM status, mobile status, LAN/DNS reads, Wi-Fi status, SMS summary and statistics reads.
+
 ### Level 2 — reversible writes
 
 Opt-in reserved for dedicated state-changing tests:
@@ -75,7 +83,14 @@ read current state
 → read back and verify restore
 ```
 
-Examples include DNS, data roaming, network mode, Wi-Fi mode/Guest state, WPS and other reversible settings once their exact contracts are represented upstream.
+The first Level-2 suite is `tests/integration/test_reversible_writes.py` and covers:
+
+- mobile-data roaming toggle + restore;
+- mobile network-mode change + restore when the router reports an alternative mode;
+- WPS toggle + restore;
+- Wi-Fi Guest and combined/separate state transitions + restore.
+
+Each test uses `try/finally` so restoration is attempted even when an intermediate assertion or write verification fails. The Wi-Fi test deliberately uses the USB management path so Wi-Fi mode changes do not remove the test PC's management connection.
 
 The read-only `NR2301_INTEGRATION=1` flag must never enable these tests.
 
@@ -139,11 +154,25 @@ $env:NR2301_URL = "http://zyxel.home"
 python -m pytest tests/integration/test_readonly_router.py -v
 ```
 
+## PowerShell reversible-write example
+
+Run the read-only suite first. When it is green and the router is the designated test device:
+
+```powershell
+$env:NR2301_WRITE_INTEGRATION = "1"
+$env:NR2301_PASSWORD = "<password>"
+$env:NR2301_URL = "http://zyxel.home"
+
+python -m pytest tests/integration/test_reversible_writes.py -v
+```
+
+The write suite restores original state in `finally` blocks. If a test still fails, inspect the full output before re-running it; do not repeatedly fire a failing state-changing test without understanding whether restoration completed.
+
 Remove credentials/flags from the environment afterwards:
 
 ```powershell
 Remove-Item Env:NR2301_PASSWORD
-Remove-Item Env:NR2301_INTEGRATION
+Remove-Item Env:NR2301_INTEGRATION -ErrorAction SilentlyContinue
 Remove-Item Env:NR2301_WRITE_INTEGRATION -ErrorAction SilentlyContinue
 Remove-Item Env:NR2301_DESTRUCTIVE_INTEGRATION -ErrorAction SilentlyContinue
 ```
