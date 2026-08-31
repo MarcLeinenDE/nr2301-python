@@ -14,6 +14,7 @@ from .namespaces import (
     DeviceNamespace,
     LANNamespace,
     MobileNamespace,
+    PhonebookNamespace,
     SIMNamespace,
     SMSNamespace,
     StatisticsNamespace,
@@ -50,6 +51,7 @@ class NR2301Client:
         self.wifi = WiFiNamespace(self)
         self.sms = SMSNamespace(self)
         self.statistics = StatisticsNamespace(self)
+        self.phonebook = PhonebookNamespace(self)
 
     @property
     def authenticated(self) -> bool:
