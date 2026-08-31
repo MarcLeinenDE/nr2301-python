@@ -4,6 +4,7 @@
 
 ### Added
 
+- added explicit `client.wifi.call_wps_pbc()`, `call_wps_pin()` and `call_wps_cancel()` wrappers for the already live-verified WPS action contracts, plus a reversible physical integration test that immediately cancels PBC/PIN and restores the original WPS-enable state
 - added `client.wifi.set_security()` with all 13 physically verified encryption tokens on 24G/5G/DUAL/Guest; protected modes verify token+key, while open mode correctly verifies only `encryption=none` because ACIY.3 can retain a non-empty key field on 24G/5G/DUAL
 - enhanced `examples/explore_wifi_security_matrix.py` with per-case checkpoint reports and `NR2301_SECURITY_START=SECTION:TOKEN` resume support so completed physical cases are not repeated after an interruption
 - added `examples/explore_wifi_security_matrix.py`, a hard-gated sanitized 13-token × 4-section Wi-Fi security explorer that classifies accepted/coerced/unverified results, uses only synthetic keys, restores every AP block and writes a shareable credential-free JSON report while tracking the raw `password_modified` marker

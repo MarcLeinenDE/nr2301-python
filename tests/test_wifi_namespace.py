@@ -391,3 +391,37 @@ def test_set_security_rejects_unknown_token_before_network_access():
         )
 
     assert session.calls == []
+
+
+
+def test_wps_action_helpers_use_verified_contracts():
+    client, session = authenticated_client(
+        {"wireless": {"wps_call_pbc_result": "OK"}},
+        {"wireless": {"wps_call_cancel_result": "OK"}},
+        {"wireless": {"wps_call_pin_result": "OK"}},
+    )
+
+    assert client.wifi.call_wps_pbc()["wireless"]["wps_call_pbc_result"] == "OK"
+    assert client.wifi.call_wps_cancel()["wireless"]["wps_call_cancel_result"] == "OK"
+    assert client.wifi.call_wps_pin("12345670")["wireless"]["wps_call_pin_result"] == "OK"
+
+    assert session.calls[0][0] == "GET"
+    assert session.calls[0][2]["params"]["method"] == "wifi_call_wps_pbc"
+    assert session.calls[1][0] == "GET"
+    assert session.calls[1][2]["params"]["method"] == "wifi_call_wps_cancel"
+    assert session.calls[2][0] == "POST"
+    assert session.calls[2][2]["params"]["method"] == "wifi_call_wps_pin"
+    assert session.calls[2][2]["json"] == {"wps_enable": "1", "wps_pin": "12345670"}
+
+
+def test_wps_pin_rejects_empty_value_before_network_access():
+    client, session = authenticated_client()
+    with pytest.raises(ValueError, match="pin must be a non-empty string"):
+        client.wifi.call_wps_pin("")
+    assert session.calls == []
+
+
+def test_wps_action_rejects_non_ok_result():
+    client, _ = authenticated_client({"wireless": {"wps_call_pbc_result": "FAIL"}})
+    with pytest.raises(APIError, match="WPS action did not return"):
+        client.wifi.call_wps_pbc()

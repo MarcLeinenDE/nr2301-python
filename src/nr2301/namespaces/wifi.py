@@ -134,6 +134,16 @@ class WiFiWPSResponse(TypedDict, total=False):
     wireless: WiFiWPSState
 
 
+class WPSActionWireless(TypedDict, total=False):
+    wps_call_pbc_result: str
+    wps_call_pin_result: str
+    wps_call_cancel_result: str
+
+
+class WPSActionResponse(TypedDict, total=False):
+    wireless: WPSActionWireless
+
+
 class WPSStatus(TypedDict, total=False):
     pbc_status: str
 
@@ -211,6 +221,57 @@ class WiFiNamespace:
             WPSStatus,
             self._client.call("wireless", "wps_status", timeout=timeout),
         )
+
+    def call_wps_pbc(self, *, timeout: float | None = None) -> WPSActionResponse:
+        """Start the live-verified WPS push-button action.
+
+        This action does not auto-cancel. Consumers that only want to probe the
+        capability should call :meth:`call_wps_cancel` immediately afterwards.
+        """
+
+        response = self._client.call(
+            "wireless",
+            "wifi_call_wps_pbc",
+            timeout=timeout,
+        )
+        self._require_wps_action_ok(response, "wps_call_pbc_result")
+        return cast(WPSActionResponse, response)
+
+    def call_wps_pin(
+        self,
+        pin: str,
+        *,
+        timeout: float | None = None,
+    ) -> WPSActionResponse:
+        """Start the live-verified WPS PIN action using the supplied raw PIN.
+
+        The shipped frontend contract sends ``wps_enable="1"`` together with
+        ``wps_pin``. The SDK intentionally does not invent a stricter PIN format
+        matrix than the evidence currently proves; firmware validation remains
+        authoritative.
+        """
+
+        if not isinstance(pin, str) or not pin:
+            raise ValueError("pin must be a non-empty string")
+        response = self._client.call(
+            "wireless",
+            "wifi_call_wps_pin",
+            data={"wps_enable": "1", "wps_pin": pin},
+            timeout=timeout,
+        )
+        self._require_wps_action_ok(response, "wps_call_pin_result")
+        return cast(WPSActionResponse, response)
+
+    def call_wps_cancel(self, *, timeout: float | None = None) -> WPSActionResponse:
+        """Cancel an active WPS PBC/PIN action and require the verified OK result."""
+
+        response = self._client.call(
+            "wireless",
+            "wifi_call_wps_cancel",
+            timeout=timeout,
+        )
+        self._require_wps_action_ok(response, "wps_call_cancel_result")
+        return cast(WPSActionResponse, response)
 
     def diagnostics(self, *, timeout: float | None = None) -> WiFiDiagnostics:
         return cast(
@@ -725,6 +786,16 @@ class WiFiNamespace:
         except NR2301Error as login_exc:
             return login_exc
         return previous_error
+
+    @staticmethod
+    def _require_wps_action_ok(response: Mapping[str, Any], field: str) -> None:
+        wireless = response.get("wireless")
+        if not isinstance(wireless, Mapping) or wireless.get(field) != "OK":
+            raise APIError(
+                f"WPS action did not return {field}=OK",
+                method_id="wireless/WPS_ACTION",
+                response={"field": field, "result": wireless.get(field) if isinstance(wireless, Mapping) else None},
+            )
 
     @staticmethod
     def _extract_config(response: Mapping[str, Any]) -> Mapping[str, Any]:
