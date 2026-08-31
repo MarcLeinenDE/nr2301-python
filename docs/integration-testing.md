@@ -227,3 +227,25 @@ Cancel after PIN -> top-level wps_call_cancel_result = OK
 ```
 
 The original WPS-enable state was restored. Together with the preceding Wi-Fi configuration/security campaigns, the 14-method public `wireless` API namespace now has explicit SDK surface coverage and physical end-to-end evidence for its action wrappers.
+
+## Completed physical SIM PIN lifecycle coverage — 2026-08-31
+
+The guarded SIM campaign now physically verifies the normal locally usable PIN lifecycle without consuming retries or publishing credentials:
+
+```text
+initial                    pin_enabled=0  pin_status=5  retries=3/10
+enable_pin                 setting_response=OK
+change_pin original->temp  setting_response=OK
+change_pin temp->original  setting_response=OK
+disable_pin                setting_response=OK
+reboot with PIN enabled    real management outage confirmed
+post-reboot stable state   pin_enabled=1  pin_status=2  retries=3/10
+provide_pin                setting_response=OK
+post-provide read-back     pin_enabled=1  pin_status=5  retries=3/10
+restore disable_pin        setting_response=OK
+final                      pin_enabled=0  pin_status=5  retries=3/10
+```
+
+A key reboot-timing finding is that `router_call_reboot` may interrupt its own HTTP request several seconds before shutdown actually begins. Physical lifecycle tests therefore require an observed management outage before accepting a later login as recovery, and they wait for a stable SIM state before deciding whether a PIN submission is appropriate.
+
+`reset_pin_using_puk` remains intentionally unexercised: obtaining PUK evidence would require a legitimately blocked SIM or deliberately exhausting PIN retries. The campaign does not manufacture that failure state merely for coverage.

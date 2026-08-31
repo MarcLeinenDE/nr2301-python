@@ -46,6 +46,7 @@
 
 ### Physical validation
 
+- SIM `provide_pin` lifecycle test passed on 2026-08-31 in 76.02 s: after enabling PIN protection, a real reboot outage was confirmed, administrator login recovered on attempt 27, the SIM stabilized at `pin_status=2`, one known-correct local PIN returned `response.setting_response=OK`, read-back returned to `pin_status=5`, retry counters remained 3/10, and PIN protection was restored to disabled
 - WPS action integration passed on 2026-08-31 in 1.44 s: PBC returned nested `wireless.wps_call_pbc_result=OK`, Cancel returned flat top-level `wps_call_cancel_result=OK`, PIN `12345670` returned nested `wireless.wps_call_pin_result=OK`, the second Cancel was again flat/OK, and the original WPS-enable state was restored
 - complete Wi-Fi security matrix finished on 2026-08-31: 52/52 section/token combinations accepted; every protected mode round-tripped the synthetic key on all four AP sections, open mode exposed section-specific key-field behavior, and `password_modified` remained 0 throughout
 - extended Wi-Fi capability suite passed on 2026-08-31: all 18 cases passed in 226.96 s, confirming raw `power_level` values 0/1/2, global and Guest maxassoc=1, Guest 2.4G/5G band mode, synthetic SSID writes on all four AP blocks, 2.4-GHz channel 13, 5-GHz channels 52/100/140 including DFS-class paths, every source-known WebUI net-mode/bandwidth token, and normal-admin `wifi_scan`, with original state restored after every mutation
@@ -72,7 +73,7 @@
 - determine the exact meaning of the raw `password_modified` field; the complete 52-case security campaign proved it is not a generic Wi-Fi credential-change latch
 - expand physical coverage into separately gated disruptive/recovery tests
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
-- physically validate the new SIM PIN helpers with known locally supplied credentials and retry guards; keep PUK-reset testing recovery-only rather than manufacturing a blocked SIM merely for coverage
+- SIM `enable_pin`, `disable_pin`, `change_pin` and `provide_pin` are physically verified with known local credentials and unchanged retry budgets; keep `reset_pin_using_puk` recovery-only rather than manufacturing a blocked SIM merely for coverage
 - `sim/get_lock_info` remains without a stable high-level JSON helper because the tested firmware returned HTTP 200 with an empty response body; revisit with targeted physical evidence
 - normalize exact raw `statistics/get_conn_clients_info.request_type` tokens before adding semantic aliases
 - normalize remaining SMS draft-save/get-by-ID contracts before adding convenience helpers
