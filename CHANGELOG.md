@@ -4,6 +4,7 @@
 
 ### Added
 
+- added `tests/integration/test_wifi_extended_writes.py` for the next capability round: exploratory top-level `power_level` candidates, global/Guest max-client lower-bound probes, Guest band selection, synthetic SSID writes, runtime-advertised upper/DFS channel paths, exhaustive original-WebUI net-mode/bandwidth tokens, and sanitized authenticated Wi-Fi scan verification
 - added jurisdiction-neutral radio-capability policy and physical Wi-Fi write/restore coverage for the original WebUI 2.4/5-GHz net-mode and bandwidth enums; the SDK does not impose Germany/EU-specific radio limits
 - clarified the SDK architecture as a complete router-capability layer: safety classifications control warnings/test gates/recovery requirements, while downstream apps/integrations decide which verified capabilities to expose; the older private app is evidence, not a feature-scope ceiling
 - initial `0.1.0.dev0` SDK scaffold
@@ -40,6 +41,7 @@
 
 ### Physical validation
 
+- comprehensive Wi-Fi field suite passed on 2026-08-31: all 15 cases passed in 178.96 s, covering representative 2.4/5-GHz fixed channels, Hidden on 24G/5G/DUAL/Guest, AP isolation on both bands, global maxassoc, timed-off persistence, master Wi-Fi switch, per-band net-mode and bandwidth changes, with exact read-back and final original-state restoration
 - combined LAN/DHCP/DNS physical write test passed on 2026-08-31: DNS-only mutation preserved all seven non-DNS fields and the complete original 12-field object was restored exactly
 - first full read-only physical SDK smoke completed successfully on 2026-08-31 against the USB-connected NR2301 using Python 3.13.5 and `http://zyxel.home`: all 8 integration groups passed in 4.01 s (version, device health, SIM, mobile, LAN/DNS, Wi-Fi, SMS summary and statistics)
 - first reversible physical write suite completed successfully on 2026-08-31: all 4 tests passed in 51.09 s, covering data-roaming toggle/restore, one router-reported alternative network-mode change/restore, WPS toggle/restore, and Wi-Fi Guest plus combined/separate state-machine transitions with final original-state restoration
@@ -56,7 +58,8 @@
 
 ### Current research backlog
 
-- run the hard-gated combined LAN/DHCP/DNS physical write test and feed any new transport/recovery evidence back into `nr2301-api`
+- run the extended Wi-Fi capability matrix and normalize accepted/rejected `power_level`, DFS/boundary-channel, Guest-band/max-client and exhaustive WebUI enum results upstream
+- physically verify Wi-Fi credential/security mutation separately with synthetic SSIDs/keys while tracking whether `password_modified` changes persistently
 - expand physical coverage into separately gated disruptive/recovery tests
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
 - research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
