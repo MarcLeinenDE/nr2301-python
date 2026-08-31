@@ -65,6 +65,26 @@ class NR2301Client:
         self.transport.session.cookies.pop("CGISID", None)
         self._authenticated = False
 
+        # Match the previously live-working frontend/application flow and
+        # protect against consuming the final password attempt during tests.
+        retry_state = self.call(
+            "account",
+            "get_retrytimes_and_time",
+            data={"type": "admin"},
+            authenticated=False,
+        )
+        remain_time = _optional_int(retry_state.get("remain_time"))
+        retry_times = _optional_int(retry_state.get("retry_times"))
+        if remain_time is not None and remain_time > 0:
+            raise AuthenticationError(
+                f"administrator login is temporarily locked; retry in {remain_time} s"
+            )
+        if retry_times is not None and retry_times <= 1:
+            raise AuthenticationError(
+                f"administrator login aborted to protect against lockout; "
+                f"only {retry_times} attempt(s) remain"
+            )
+
         user_id = generate_user_id()
         challenge = self.call(
             "account",
@@ -96,7 +116,7 @@ class NR2301Client:
 
         result_code = result.get("result")
         if result_code != 3:
-            numeric_result = result_code if isinstance(result_code, int) else None
+            numeric_result = _optional_int(result_code)
             raise AuthenticationError(
                 f"administrator login failed: {login_result_text(numeric_result)}",
                 result=numeric_result,
@@ -156,3 +176,12 @@ class NR2301Client:
                 self.logout()
         finally:
             self.close()
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
