@@ -101,21 +101,26 @@ def test_sim_pin_change_and_restore() -> None:
         enable_response = router.sim.enable_pin(original_pin)
         enable_result, enable_shape = _setting_response(enable_response)
         print(f"SIM_PIN_ACTION action=enable_pin response_shape={enable_shape} setting_response={enable_result}")
-        if enable_result != "OK":
-            pytest.fail("enable_pin did not return setting_response=OK; no PIN guessing will be attempted")
         enabled_state = _pin_state(router)
         _print_state("after_enable", enabled_state)
+        if enable_result != "OK":
+            if enabled_state.get("pin_enabled") == 1:
+                pin_enabled = True
+            pytest.fail("enable_pin did not return setting_response=OK; no PIN guessing will be attempted")
         assert enabled_state["pin_enabled"] == 1
         _require_same_retry_budget(enabled_state, pin_attempts, puk_attempts)
         pin_enabled = True
 
+        # From this point, any non-OK/exception makes the active PIN uncertain.
+        # Never continue by trying both credentials.
+        active_pin = "uncertain"
         change_response = router.sim.change_pin(original_pin, temporary_pin)
         change_result, change_shape = _setting_response(change_response)
         print(f"SIM_PIN_ACTION action=change_to_temporary response_shape={change_shape} setting_response={change_result}")
         if change_result != "OK":
             pytest.fail(
                 "change_pin to temporary PIN did not return setting_response=OK; "
-                "active PIN is intentionally treated as uncertain and no alternate PIN will be guessed"
+                "active PIN is uncertain and no further PIN mutation will be attempted"
             )
         active_pin = "temporary"
         changed_state = _pin_state(router)
@@ -123,13 +128,14 @@ def test_sim_pin_change_and_restore() -> None:
         assert changed_state["pin_enabled"] == 1
         _require_same_retry_budget(changed_state, pin_attempts, puk_attempts)
 
+        active_pin = "uncertain"
         restore_response = router.sim.change_pin(temporary_pin, original_pin)
         restore_result, restore_shape = _setting_response(restore_response)
         print(f"SIM_PIN_ACTION action=restore_original_pin response_shape={restore_shape} setting_response={restore_result}")
         if restore_result != "OK":
             pytest.fail(
                 "restoring the original PIN did not return setting_response=OK; "
-                "do not rerun or try another PIN before inspecting the current SIM state"
+                "active PIN is uncertain, so do not rerun or try another PIN before inspection"
             )
         active_pin = "original"
         restored_pin_state = _pin_state(router)
@@ -152,7 +158,7 @@ def test_sim_pin_change_and_restore() -> None:
         _require_same_retry_budget(final, pin_attempts, puk_attempts)
     finally:
         # Cleanup is intentionally conservative: only use the PIN whose activation
-        # was positively acknowledged. Never try both credentials on uncertainty.
+        # was positively acknowledged. Never try either credential on uncertainty.
         if active_pin == "temporary":
             try:
                 response = router.sim.change_pin(temporary_pin, original_pin)
@@ -160,10 +166,15 @@ def test_sim_pin_change_and_restore() -> None:
                 print(f"SIM_PIN_CLEANUP action=restore_original_pin response_shape={shape} setting_response={result}")
                 if result == "OK":
                     active_pin = "original"
+                else:
+                    active_pin = "uncertain"
             except Exception as exc:
+                active_pin = "uncertain"
                 print(f"SIM_PIN_CLEANUP restore_original_pin_failed exception_type={type(exc).__name__}")
 
-        if pin_enabled and active_pin == "original":
+        if active_pin == "uncertain":
+            print("SIM_PIN_CLEANUP active_pin=uncertain no_further_pin_writes=1")
+        elif pin_enabled and active_pin == "original":
             try:
                 response = router.sim.disable_pin(original_pin)
                 result, shape = _setting_response(response)
