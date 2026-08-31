@@ -7,6 +7,7 @@ import os
 import time
 
 import pytest
+import requests
 
 from nr2301 import NR2301Client
 from nr2301.exceptions import AuthenticationError, ProtocolError, TransportError
@@ -81,6 +82,46 @@ def _setting_response(response: Mapping[str, object]) -> tuple[object | None, st
     return None, "missing"
 
 
+def _wait_for_management_outage(
+    router: NR2301Client,
+    *,
+    attempts: int = 40,
+    delay: float = 0.5,
+) -> None:
+    """Require a real management outage before accepting any recovery login.
+
+    `router_call_reboot` can interrupt its own HTTP request several seconds before
+    the device actually starts shutting down. A successful login during that
+    grace period is therefore pre-reboot state, not recovery evidence.
+    """
+
+    consecutive_failures = 0
+    last_type = "none"
+    for index in range(1, attempts + 1):
+        try:
+            response = router.transport.session.get(
+                f"{router.transport.base_url}/",
+                timeout=1.0,
+            )
+            response.raise_for_status()
+            consecutive_failures = 0
+        except requests.RequestException as exc:
+            last_type = type(exc).__name__
+            consecutive_failures += 1
+            if consecutive_failures >= 2:
+                print(
+                    f"ROUTER_REBOOT_PHASE management_outage=CONFIRMED "
+                    f"probe={index} exception_type={last_type}"
+                )
+                return
+        time.sleep(delay)
+
+    pytest.fail(
+        "reboot request was interrupted but no confirmed management outage was observed; "
+        f"provide_pin will not be sent; last_exception_type={last_type}"
+    )
+
+
 def _recover_login(router: NR2301Client, *, attempts: int = 45, delay: float = 2.0) -> None:
     last_type = "none"
     for index in range(1, attempts + 1):
@@ -92,7 +133,7 @@ def _recover_login(router: NR2301Client, *, attempts: int = 45, delay: float = 2
             last_type = type(exc).__name__
             time.sleep(delay)
     pytest.fail(
-        f"router did not recover administrator login after reboot; last_exception_type={last_type}"
+        f"router did not recover administrator login after confirmed outage; last_exception_type={last_type}"
     )
 
 
@@ -100,6 +141,7 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
     pin = _pin()
     router = _client()
     pin_protection_enabled = False
+    outage_confirmed = False
     recovered_after_reboot = False
     pin_ready_after_reboot = False
     provide_attempted = False
@@ -136,9 +178,12 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
             router.call("router", "router_call_reboot", timeout=5.0)
             print("ROUTER_ACTION reboot_call_returned=JSON")
         except (TransportError, ProtocolError) as exc:
-            # A timeout/non-JSON response is expected evidence for a rebooting device.
-            # Never print exception text: it may contain unnecessary transport details.
+            # The request can be interrupted before shutdown begins. This alone
+            # is not treated as reboot/recovery evidence.
             print(f"ROUTER_ACTION reboot_call_interrupted exception_type={type(exc).__name__}")
+
+        _wait_for_management_outage(router)
+        outage_confirmed = True
 
         _recover_login(router)
         recovered_after_reboot = True
@@ -152,8 +197,8 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
 
         if locked["pin_status"] != 2:
             pytest.fail(
-                "router recovered but SIM did not report pin_status=2 (PIN required); "
-                "provide_pin was intentionally NOT sent"
+                "router recovered after a confirmed management outage but SIM did not report "
+                "pin_status=2 (PIN required); provide_pin was intentionally NOT sent"
             )
 
         provide_attempted = True
@@ -194,10 +239,10 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
         assert final["pin_attempts"] == pin_attempts
         assert final["puk_attempts"] == puk_attempts
     finally:
-        # Conservative cleanup only after management recovery. If the reboot did
-        # not recover, the user must inspect state manually instead of the test
-        # sending credential operations blindly.
-        if recovered_after_reboot and pin_protection_enabled:
+        # Cleanup is permitted only after a confirmed outage and successful
+        # management recovery. Before that point the router may still be in the
+        # pre-reboot grace period and any cleanup could race the actual reboot.
+        if outage_confirmed and recovered_after_reboot and pin_protection_enabled:
             try:
                 current = _state(router)
                 _print_state("cleanup_observed", current)
@@ -206,8 +251,6 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
                     and not pin_ready_after_reboot
                     and not provide_attempted
                 ):
-                    # Permit one known-correct PIN submission only when the main
-                    # path never submitted it. Never retry an ambiguous result.
                     provide_attempted = True
                     response = router.sim.provide_pin(pin)
                     result, shape = _setting_response(response)
