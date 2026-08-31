@@ -4,6 +4,7 @@
 
 ### Added
 
+- added `client.sim.provide_pin()`, `enable_pin()`, `disable_pin()`, `change_pin()` and `reset_pin_using_puk()` using the exact normalized frontend payloads; helpers never log secrets and apply a default retry-budget guard that preserves the final PIN/PUK attempt while remaining explicitly overridable for deliberate recovery use
 - added explicit `client.wifi.call_wps_pbc()`, `call_wps_pin()` and `call_wps_cancel()` wrappers for the already live-verified WPS action contracts, plus a reversible physical integration test that immediately cancels PBC/PIN and restores the original WPS-enable state
 - added `client.wifi.set_security()` with all 13 physically verified encryption tokens on 24G/5G/DUAL/Guest; protected modes verify token+key, while open mode correctly verifies only `encryption=none` because ACIY.3 can retain a non-empty key field on 24G/5G/DUAL
 - enhanced `examples/explore_wifi_security_matrix.py` with per-case checkpoint reports and `NR2301_SECURITY_START=SECTION:TOKEN` resume support so completed physical cases are not repeated after an interruption
@@ -71,7 +72,7 @@
 - determine the exact meaning of the raw `password_modified` field; the complete 52-case security campaign proved it is not a generic Wi-Fi credential-change latch
 - expand physical coverage into separately gated disruptive/recovery tests
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
-- research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
+- physically validate the new SIM PIN helpers with known locally supplied credentials and retry guards; keep PUK-reset testing recovery-only rather than manufacturing a blocked SIM merely for coverage
 - `sim/get_lock_info` remains without a stable high-level JSON helper because the tested firmware returned HTTP 200 with an empty response body; revisit with targeted physical evidence
 - normalize exact raw `statistics/get_conn_clients_info.request_type` tokens before adding semantic aliases
 - normalize remaining SMS draft-save/get-by-ID contracts before adding convenience helpers
