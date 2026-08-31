@@ -102,6 +102,7 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
     pin_protection_enabled = False
     recovered_after_reboot = False
     pin_ready_after_reboot = False
+    provide_attempted = False
 
     try:
         initial = _state(router)
@@ -155,6 +156,7 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
                 "provide_pin was intentionally NOT sent"
             )
 
+        provide_attempted = True
         provide = router.sim.provide_pin(pin)
         provide_result, provide_shape = _setting_response(provide)
         print(
@@ -199,8 +201,14 @@ def test_sim_provide_pin_after_reboot_and_restore() -> None:
             try:
                 current = _state(router)
                 _print_state("cleanup_observed", current)
-                if current.get("pin_status") == 2 and not pin_ready_after_reboot:
-                    # Exactly one known-correct PIN submission is permitted here.
+                if (
+                    current.get("pin_status") == 2
+                    and not pin_ready_after_reboot
+                    and not provide_attempted
+                ):
+                    # Permit one known-correct PIN submission only when the main
+                    # path never submitted it. Never retry an ambiguous result.
+                    provide_attempted = True
                     response = router.sim.provide_pin(pin)
                     result, shape = _setting_response(response)
                     print(
