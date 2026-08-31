@@ -7,17 +7,18 @@ from nr2301 import AuthenticationError, NR2301Client, ProtocolError
 from conftest import FakeResponse, FakeSession
 
 
-def test_login_performs_challenge_and_establishes_session(monkeypatch):
+def test_login_performs_lockout_guard_challenge_and_establishes_session(monkeypatch):
     session = FakeSession([])
 
     def set_cookie():
         session.cookies.set("CGISID", "session-123")
 
     session.responses.extend([
+        FakeResponse({"result": 0, "retry_times": 5, "remain_time": 0}),
         FakeResponse({"rand": "router-rand", "result": 0}),
         FakeResponse({"result": 3}, on_json=set_cookie),
     ])
-    monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "client-id")
+    monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "abc123xy")
 
     client = NR2301Client(
         "http://192.168.1.1",
@@ -30,26 +31,59 @@ def test_login_performs_challenge_and_establishes_session(monkeypatch):
     assert client.authenticated is True
     assert client.session_id == "session-123"
 
-    first = session.calls[0]
-    assert first[0] == "POST"
-    assert first[2]["json"] == {"type": "admin", "user_id": "client-id"}
+    guard = session.calls[0]
+    assert guard[0] == "POST"
+    assert guard[2]["params"]["method"] == "get_retrytimes_and_time"
+    assert guard[2]["json"] == {"type": "admin"}
 
-    second = session.calls[1]
+    challenge = session.calls[1]
+    assert challenge[0] == "POST"
+    assert challenge[2]["params"]["method"] == "get_rand"
+    assert challenge[2]["json"] == {"type": "admin", "user_id": "abc123xy"}
+
+    login = session.calls[2]
     expected_digest = hashlib.md5(b"router-randsecret").hexdigest()
-    assert second[2]["json"] == {
+    assert login[2]["json"] == {
         "type": "admin",
         "username": "admin",
         "password": expected_digest,
-        "user_id": "client-id",
+        "user_id": "abc123xy",
     }
+
+
+def test_login_aborts_when_router_reports_lockout_time():
+    session = FakeSession([
+        FakeResponse({"result": 0, "retry_times": 0, "remain_time": 30}),
+    ])
+    client = NR2301Client(password="secret", session=session)
+
+    with pytest.raises(AuthenticationError, match="retry in 30 s"):
+        client.login()
+
+    assert len(session.calls) == 1
+    assert client.authenticated is False
+
+
+def test_login_aborts_before_last_remaining_attempt():
+    session = FakeSession([
+        FakeResponse({"result": 0, "retry_times": "1", "remain_time": "0"}),
+    ])
+    client = NR2301Client(password="secret", session=session)
+
+    with pytest.raises(AuthenticationError, match="only 1 attempt"):
+        client.login()
+
+    assert len(session.calls) == 1
+    assert client.authenticated is False
 
 
 def test_login_failure_raises_typed_exception(monkeypatch):
     session = FakeSession([
+        FakeResponse({"result": 0, "retry_times": 5, "remain_time": 0}),
         FakeResponse({"rand": "r", "result": 0}),
         FakeResponse({"result": 1}),
     ])
-    monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "client-id")
+    monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "abc123xy")
     client = NR2301Client(password="wrong", session=session)
 
     with pytest.raises(AuthenticationError) as exc:
@@ -62,10 +96,11 @@ def test_login_failure_raises_typed_exception(monkeypatch):
 
 def test_login_requires_cgisid_cookie(monkeypatch):
     session = FakeSession([
+        FakeResponse({"result": 0, "retry_times": 5, "remain_time": 0}),
         FakeResponse({"rand": "r", "result": 0}),
         FakeResponse({"result": 3}),
     ])
-    monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "client-id")
+    monkeypatch.setattr("nr2301.client.generate_user_id", lambda: "abc123xy")
     client = NR2301Client(password="secret", session=session)
 
     with pytest.raises(ProtocolError):
