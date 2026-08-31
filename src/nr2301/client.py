@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 
@@ -27,7 +28,7 @@ class NR2301Client:
 
     def __init__(
         self,
-        base_url: str = "http://192.168.1.1",
+        base_url: str = "http://zyxel.home",
         *,
         username: str = "admin",
         password: str | None = None,
@@ -73,6 +74,17 @@ class NR2301Client:
             data={"type": "admin"},
             authenticated=False,
         )
+        retry_result = _optional_int(retry_state.get("result"))
+        if retry_result != 0:
+            raise AuthenticationError(
+                _preauth_failure_message(
+                    self.transport.base_url,
+                    "account/get_retrytimes_and_time",
+                    retry_state.get("result"),
+                ),
+                result=retry_result,
+            )
+
         remain_time = _optional_int(retry_state.get("remain_time"))
         retry_times = _optional_int(retry_state.get("retry_times"))
         if remain_time is not None and remain_time > 0:
@@ -93,9 +105,15 @@ class NR2301Client:
             authenticated=False,
         )
 
-        if challenge.get("result") != 0:
+        challenge_result = _optional_int(challenge.get("result"))
+        if challenge_result != 0:
             raise AuthenticationError(
-                f"account/get_rand failed with result={challenge.get('result')!r}"
+                _preauth_failure_message(
+                    self.transport.base_url,
+                    "account/get_rand",
+                    challenge.get("result"),
+                ),
+                result=challenge_result,
             )
         rand = challenge.get("rand")
         if not isinstance(rand, str) or not rand:
@@ -185,3 +203,18 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _preauth_failure_message(base_url: str, method_id: str, result: Any) -> str:
+    message = f"{method_id} failed with result={result!r}"
+    if _uses_tested_direct_management_ip(base_url) and _optional_int(result) == 4:
+        message += (
+            "; tested firmware V1.00(ACIY.3)C0 returns result=4 for administrator "
+            "pre-auth calls addressed as 192.168.1.1, while the same router/IP "
+            "succeeds via the canonical management host http://zyxel.home"
+        )
+    return message
+
+
+def _uses_tested_direct_management_ip(base_url: str) -> bool:
+    return urlsplit(base_url).hostname == "192.168.1.1"
