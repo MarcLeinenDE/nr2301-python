@@ -4,6 +4,7 @@
 
 ### Added
 
+- enhanced `examples/explore_wifi_security_matrix.py` with per-case checkpoint reports and `NR2301_SECURITY_START=SECTION:TOKEN` resume support so completed physical cases are not repeated after an interruption
 - added `examples/explore_wifi_security_matrix.py`, a hard-gated sanitized 13-token × 4-section Wi-Fi security explorer that classifies accepted/coerced/unverified results, uses only synthetic keys, restores every AP block and writes a shareable credential-free JSON report while tracking the raw `password_modified` marker
 - added `tests/integration/test_wifi_extended_writes.py` for the next capability round: exploratory top-level `power_level` candidates, global/Guest max-client lower-bound probes, Guest band selection, synthetic SSID writes, runtime-advertised upper/DFS channel paths, exhaustive original-WebUI net-mode/bandwidth tokens, and sanitized authenticated Wi-Fi scan verification
 - added jurisdiction-neutral radio-capability policy and physical Wi-Fi write/restore coverage for the original WebUI 2.4/5-GHz net-mode and bandwidth enums; the SDK does not impose Germany/EU-specific radio limits
@@ -50,6 +51,7 @@
 
 ### Fixed / corrected
 
+- corrected Wi-Fi restore semantics after physical security-matrix evidence showed `cur_channel` can legitimately differ after restoring configured auto-channel state; physical restore helpers now compare only mutable configuration and exclude runtime/capability metadata (`cur_channel`, `first_channel`, `last_channel`, `channel_list`)
 - hardened physical Wi-Fi restore assertions so a failed restore reports only mismatching field names instead of allowing pytest to render complete AP dictionaries containing real SSIDs/keys
 - hardened Wi-Fi write diagnostics so SSID/key/password-like fields are redacted from verification failures, and added a recovery/read-back helper for top-level Wi-Fi settings used by the physical capability campaign
 - changed the default management URL from direct `http://192.168.1.1` to canonical `http://zyxel.home` after physical USB A/B testing proved administrator pre-auth is host/authority sensitive on firmware `V1.00(ACIY.3)C0`; both names resolve to the same IP, but the direct-IP path returns `result=4` while `zyxel.home` returns normal pre-auth success

@@ -39,6 +39,17 @@ def _config(router: NR2301Client) -> dict:
     return config
 
 
+_NON_CONFIG_FIELDS = {
+    "wifi_if_24G": {"cur_channel", "first_channel", "last_channel"},
+    "wifi_if_5G": {"cur_channel", "channel_list"},
+}
+
+
+def _configurable_view(section: str, block: dict) -> dict:
+    ignored = _NON_CONFIG_FIELDS.get(section, set())
+    return {key: value for key, value in block.items() if key not in ignored}
+
+
 def _mismatched_fields(actual: dict, expected: dict) -> list[str]:
     return sorted(
         key
@@ -48,18 +59,22 @@ def _mismatched_fields(actual: dict, expected: dict) -> list[str]:
 
 
 def _restore_section(router: NR2301Client, section: str, original: dict) -> None:
+    expected = _configurable_view(section, original)
     current = _config(router).get(section)
-    if current != original:
-        router.wifi.update_ap_section(section, original)
+    if not isinstance(current, dict):
+        pytest.fail(f"{section} restore current state returned no mapping")
+    if _configurable_view(section, current) != expected:
+        router.wifi.update_ap_section(section, expected)
     final = _config(router).get(section)
     if not isinstance(final, dict):
         pytest.fail(f"{section} restore returned no mapping")
-    if final != original:
-        # Never let pytest introspection print complete AP blocks: they can
-        # contain the real SSID and Wi-Fi key. Field names are sufficient.
+    final_view = _configurable_view(section, final)
+    if final_view != expected:
+        # Runtime/capability fields such as cur_channel are deliberately not
+        # restore targets. Only mutable configuration differences are reported.
         pytest.fail(
-            f"{section} restore mismatch in fields: "
-            f"{_mismatched_fields(final, original)}"
+            f"{section} restore mismatch in configurable fields: "
+            f"{_mismatched_fields(final_view, expected)}"
         )
 
 
