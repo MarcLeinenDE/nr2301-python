@@ -77,3 +77,7 @@
 - keep USB-mode mutation out of physical coverage while USB is the active control/recovery channel
 
 The SDK started from immutable `nr2301-api v0.1.0`; the newest normalized contracts track the API repository's `0.1.1.dev0` development state on `main`.
+
+### Fixed
+
+- fixed WPS action response handling after physical ACIY.3 evidence showed `wifi_call_wps_cancel` returning a flat top-level `wps_call_cancel_result` while PBC returned its result under `wireless`; helpers now accept either evidenced envelope but still require the action result to be exactly `OK`

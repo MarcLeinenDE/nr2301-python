@@ -141,7 +141,12 @@ class WPSActionWireless(TypedDict, total=False):
 
 
 class WPSActionResponse(TypedDict, total=False):
+    # ACIY.3 has been observed to use both response shapes across WPS actions:
+    # nested under `wireless` and flat at the top level. Preserve the raw shape.
     wireless: WPSActionWireless
+    wps_call_pbc_result: str
+    wps_call_pin_result: str
+    wps_call_cancel_result: str
 
 
 class WPSStatus(TypedDict, total=False):
@@ -789,12 +794,22 @@ class WiFiNamespace:
 
     @staticmethod
     def _require_wps_action_ok(response: Mapping[str, Any], field: str) -> None:
-        wireless = response.get("wireless")
-        if not isinstance(wireless, Mapping) or wireless.get(field) != "OK":
+        # Physical ACIY.3 evidence shows action-specific response envelopes.
+        # PBC was observed nested under `wireless`, while Cancel returned the
+        # result directly at the top level. Accept only these two evidenced
+        # envelope locations; the actual action result must still be exactly OK.
+        result = response.get(field)
+        envelope = "top_level"
+        if result is None:
+            wireless = response.get("wireless")
+            if isinstance(wireless, Mapping):
+                result = wireless.get(field)
+                envelope = "wireless"
+        if result != "OK":
             raise APIError(
                 f"WPS action did not return {field}=OK",
                 method_id="wireless/WPS_ACTION",
-                response={"field": field, "result": wireless.get(field) if isinstance(wireless, Mapping) else None},
+                response={"field": field, "result": result, "envelope": envelope},
             )
 
     @staticmethod
