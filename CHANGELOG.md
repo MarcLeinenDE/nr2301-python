@@ -30,20 +30,27 @@
 - `client.sms.send()` using the normalized normal-SMS GSM7/UTF-16BE/timestamp wire contract and verified SMS-specific success fields
 - `client.sms.delete()` using the normalized single-ID request and verified deletion success fields
 - explicitly opt-in physical-router integration tests guarded by `NR2301_INTEGRATION=1`; the initial smoke suite is read-only and deliberately avoids high-sensitivity identity/Wi-Fi-key/SMS-content reads
+- staged physical-test policy for the dedicated non-production router: read-only, reversible-write and destructive/recovery levels, with USB-management-mode mutation explicitly excluded from the current campaign
+- complete-SDK-coverage goal plus mandatory feedback of every new physical SDK finding into `nr2301-api`
+- sanitized `examples/diagnose_auth_transport.py` probe that compares current requests transport with the historically working compact/header shape and an urllib reproduction without reading or transmitting the administrator password
 
-### Fixed
+### Fixed / corrected
 
-- restored the known live-working administrator login `user_id` format to eight lowercase alphanumeric characters (`[a-z0-9]{8}`) instead of the initial SDK's invented 32-character hexadecimal value; the latter reproducibly received `account/get_rand result=4` during the first physical USB smoke test
+- restored the historically live-working administrator login `user_id` shape to eight lowercase alphanumeric characters (`[a-z0-9]{8}`) instead of the initial SDK's invented 32-character hexadecimal value
+- corrected the interim hypothesis that the 32-character user-id caused the current physical `account/get_rand result=4`: the 2026-08-31 USB retest with the historical eight-character shape produced the same result, so the current cause remains unresolved
 - restored the pre-login `account/get_retrytimes_and_time` guard so the SDK waits on an active lockout and refuses to consume the final remaining password attempt
 - kept the 0..6 login result mapping scoped to `account/login`; `account/get_rand.result` is not interpreted through that table without endpoint-specific evidence
 
-### Deliberately deferred
+### Current research backlog
 
-- SIM PIN/PUK writes are not exposed: those public API paths remain static-only / `DO_NOT_TEST_FOR_COVERAGE`
-- `sim/get_lock_info` is not wrapped because the tested firmware returned HTTP 200 with an empty response body rather than a stable JSON contract
-- semantic aliases for `statistics/get_conn_clients_info.request_type` are not invented until the exact raw request-type tokens are normalized in the public API
-- SMS draft-save and get-by-ID convenience helpers remain deferred until those full request objects are normalized as stable public contracts
-- independent Guest isolation is not exposed on ACIY.3 because the getter does not safely round-trip that value
-- write-level physical-router integration tests require a future, separate opt-in and explicit recovery prerequisites; they are not enabled by the read-only integration flag
+- resolve the physical USB `account/get_rand result=4` by comparing the exact historical transport/request behavior against the current SDK request before changing more authentication semantics
+- expand physical coverage from the read-only smoke suite into separately gated reversible-write and disruptive/recovery suites
+- close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
+- research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
+- `sim/get_lock_info` remains without a stable high-level JSON helper because the tested firmware returned HTTP 200 with an empty response body; revisit with targeted physical evidence
+- normalize exact raw `statistics/get_conn_clients_info.request_type` tokens before adding semantic aliases
+- normalize remaining SMS draft-save/get-by-ID contracts before adding convenience helpers
+- close the ACIY.3 Guest-isolation getter/setter asymmetry before exposing an independent isolation helper
+- keep USB-mode mutation out of physical coverage while USB is the active control/recovery channel
 
 The SDK started from immutable `nr2301-api v0.1.0`; the newest normalized contracts track the API repository's `0.1.1.dev0` development state on `main`.
