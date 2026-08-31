@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Record SDK SMS Draft COPY_ON_SAVE evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/record-sms-draft-copy-on-save.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python tools/record_sms_draft_copy_on_save_once.py
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+      - name: Commit SMS Draft COPY_ON_SAVE SDK docs
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/nr2301/namespaces/sms.py tests/integration/test_sms_draft_get_by_id.py CHANGELOG.md docs/integration-testing.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'Document SMS Draft COPY_ON_SAVE semantics'
+          git push
