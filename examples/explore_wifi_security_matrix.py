@@ -45,6 +45,14 @@ SECTIONS = (
     "wifi_if_GUEST",
 )
 
+# Runtime/capability metadata returned inside AP blocks but not part of the
+# mutable configuration contract. In particular, `cur_channel` can legitimately
+# change after restoring configured `channel=0` (auto channel selection).
+_NON_CONFIG_FIELDS: dict[str, set[str]] = {
+    "wifi_if_24G": {"cur_channel", "first_channel", "last_channel"},
+    "wifi_if_5G": {"cur_channel", "channel_list"},
+}
+
 # Synthetic values only. These strings are intentionally safe to publish.
 PSK_TEST_KEY = "NR2301-TestKey-2026"
 WEP_TEST_KEY = "NR2301WEPKEYX"  # 13 ASCII characters
@@ -94,6 +102,11 @@ def _test_key(token: str) -> str:
     return PSK_TEST_KEY
 
 
+def _configurable_view(section: str, block: dict[str, Any]) -> dict[str, Any]:
+    ignored = _NON_CONFIG_FIELDS.get(section, set())
+    return {key: value for key, value in block.items() if key not in ignored}
+
+
 def _mismatched_fields(actual: dict[str, Any], expected: dict[str, Any]) -> list[str]:
     return sorted(
         key
@@ -107,36 +120,40 @@ def _restore_section(
     section: str,
     original: dict[str, Any],
 ) -> dict[str, Any]:
-    """Restore one block and report only mismatching field names on failure."""
+    """Restore mutable fields and ignore runtime/capability metadata."""
 
+    expected = _configurable_view(section, original)
     current = _config(router).get(section)
     if not isinstance(current, dict):
         raise RuntimeError(f"restore failed: {section} is not a mapping")
 
     restore_error_type: str | None = None
-    if current != original:
+    if _configurable_view(section, current) != expected:
         try:
             router.wifi.update_ap_section(
                 section,
-                original,
+                expected,
                 write_timeout=45.0,
                 recovery_attempts=20,
                 recovery_delay=1.0,
                 recovery_timeout=3.0,
             )
-        except Exception as exc:  # classification happens after final read-back
+        except Exception as exc:  # final read-back decides whether restore worked
             restore_error_type = type(exc).__name__
 
-    final = _config(router).get(section)
+    final_config = _config(router)
+    final = final_config.get(section)
     if not isinstance(final, dict):
         raise RuntimeError(f"restore failed: {section} final state is not a mapping")
-    if final != original:
-        fields = _mismatched_fields(final, original)
+
+    final_view = _configurable_view(section, final)
+    if final_view != expected:
+        fields = _mismatched_fields(final_view, expected)
         suffix = f"; setter_error={restore_error_type}" if restore_error_type else ""
         raise RuntimeError(
-            f"restore verification failed for {section}; mismatching fields={fields}{suffix}"
+            f"restore verification failed for {section}; mismatching configurable fields={fields}{suffix}"
         )
-    return _config(router)
+    return final_config
 
 
 def _classify(
@@ -184,119 +201,208 @@ def _print_row(row: dict[str, Any]) -> None:
     )
 
 
-def main() -> int:
-    print("NR2301 sanitized Wi-Fi security matrix exploration")
-    print("Physical writes: YES (hard opt-in). USB/management mode is NOT touched.")
-    print("Real SSIDs, Wi-Fi keys and router password are never printed or stored.")
-    print("Each case is restored before the next case.\n")
-
-    started = time.monotonic()
-    rows: list[dict[str, Any]] = []
-    router = _client()
+def _parse_start() -> tuple[str, str] | None:
+    raw = os.environ.get("NR2301_SECURITY_START", "").strip()
+    if not raw:
+        return None
     try:
-        initial = _config(router)
-        initial_password_modified = _password_modified(initial)
+        section, token = raw.split(":", 1)
+    except ValueError as exc:
+        raise SystemExit(
+            "NR2301_SECURITY_START must be SECTION:TOKEN, for example "
+            "wifi_if_5G:psk+tkip+ccmp"
+        ) from exc
+    if section not in SECTIONS or token not in TOKENS:
+        raise SystemExit(
+            f"invalid NR2301_SECURITY_START={raw!r}; use a known section and token"
+        )
+    return section, token
 
-        for section in SECTIONS:
-            current_section = initial.get(section)
-            if not isinstance(current_section, dict):
-                print(f"{section}: skipped because the router did not return a mapping")
-                continue
 
-            for token in TOKENS:
-                before_config = _config(router)
-                original = before_config.get(section)
-                if not isinstance(original, dict):
-                    raise RuntimeError(f"{section} disappeared before {token}")
-                original = copy.deepcopy(original)
-                pwd_before = _password_modified(before_config)
-                synthetic_key = _test_key(token)
-                setter_error_type: str | None = None
-                actual_block: dict[str, Any] | None = None
-                pwd_after_write: int | str | None = None
+def _ordered_cases(start: tuple[str, str] | None) -> list[tuple[str, str]]:
+    cases = [(section, token) for section in SECTIONS for token in TOKENS]
+    if start is None:
+        return cases
+    try:
+        index = cases.index(start)
+    except ValueError as exc:
+        raise SystemExit(f"start case {start!r} is not in the matrix") from exc
+    return cases[index:]
 
-                try:
-                    try:
-                        router.wifi.update_ap_section(
-                            section,
-                            {"encryption": token, "key": synthetic_key},
-                            write_timeout=45.0,
-                            recovery_attempts=8,
-                            recovery_delay=1.0,
-                            recovery_timeout=3.0,
-                        )
-                    except Exception as exc:
-                        # Never print exception text: it could contain context
-                        # that is unnecessary for the sanitized research report.
-                        setter_error_type = type(exc).__name__
 
-                    try:
-                        after_write = _config(router)
-                        block = after_write.get(section)
-                        actual_block = block if isinstance(block, dict) else None
-                        pwd_after_write = _password_modified(after_write)
-                    except Exception as exc:
-                        if setter_error_type is None:
-                            setter_error_type = type(exc).__name__
-
-                    classification, readback_token, key_match = _classify(
-                        token,
-                        synthetic_key,
-                        actual_block,
-                        setter_error_type,
-                    )
-                finally:
-                    after_restore = _restore_section(router, section, original)
-
-                row = {
-                    "section": section,
-                    "requested_token": token,
-                    "classification": classification,
-                    "readback_token": readback_token,
-                    "key_match": key_match,
-                    "setter_error_type": setter_error_type,
-                    "password_modified_before": pwd_before,
-                    "password_modified_after_write": pwd_after_write,
-                    "password_modified_after_restore": _password_modified(after_restore),
-                }
-                rows.append(row)
-                _print_row(row)
-
-        final = _config(router)
-        final_password_modified = _password_modified(final)
-    finally:
-        router.close()
-
+def _build_report(
+    *,
+    rows: list[dict[str, Any]],
+    initial_password_modified: int | str | None,
+    final_password_modified: int | str | None,
+    started: float,
+    start: tuple[str, str] | None,
+    complete: bool,
+) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for row in rows:
         key = str(row["classification"])
         counts[key] = counts.get(key, 0) + 1
-
-    report = {
+    return {
         "schema": "nr2301.sanitized_wifi_security_matrix",
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "source_token_count": len(TOKENS),
         "section_count": len(SECTIONS),
+        "start_at": None if start is None else f"{start[0]}:{start[1]}",
+        "complete_requested_range": complete,
         "rows": rows,
         "classification_counts": counts,
         "password_modified_initial": initial_password_modified,
         "password_modified_final": final_password_modified,
         "duration_seconds": round(time.monotonic() - started, 3),
+        "restore_policy": (
+            "Exact mutable-config restore. Runtime/capability metadata such as cur_channel, "
+            "first_channel, last_channel and channel_list is not treated as restorable state."
+        ),
         "privacy": "No real SSID, Wi-Fi key, router password, session cookie, MAC or scan result is stored.",
     }
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def main() -> int:
+    print("NR2301 sanitized Wi-Fi security matrix exploration")
+    print("Physical writes: YES (hard opt-in). USB/management mode is NOT touched.")
+    print("Real SSIDs, Wi-Fi keys and router password are never printed or stored.")
+    print("Each case is restored before the next case.")
+    print("Runtime cur_channel changes are not treated as configuration-restore failures.\n")
+
+    started = time.monotonic()
+    start = _parse_start()
+    cases = _ordered_cases(start)
+    if start is not None:
+        print(f"Resuming matrix at: {start[0]} / {start[1]}\n")
 
     report_path = Path(
         os.environ.get("NR2301_REPORT_PATH", "nr2301_wifi_security_matrix_report.json")
     )
-    report_path.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    rows: list[dict[str, Any]] = []
+    initial_password_modified: int | str | None = None
+    final_password_modified: int | str | None = None
+    complete = False
+
+    router = _client()
+    try:
+        initial = _config(router)
+        initial_password_modified = _password_modified(initial)
+
+        for section, token in cases:
+            current_section = initial.get(section)
+            if not isinstance(current_section, dict):
+                print(f"{section}: skipped because the router did not return a mapping")
+                continue
+
+            before_config = _config(router)
+            original = before_config.get(section)
+            if not isinstance(original, dict):
+                raise RuntimeError(f"{section} disappeared before {token}")
+            original = copy.deepcopy(original)
+            pwd_before = _password_modified(before_config)
+            synthetic_key = _test_key(token)
+            setter_error_type: str | None = None
+            actual_block: dict[str, Any] | None = None
+            pwd_after_write: int | str | None = None
+
+            try:
+                try:
+                    router.wifi.update_ap_section(
+                        section,
+                        {"encryption": token, "key": synthetic_key},
+                        write_timeout=45.0,
+                        recovery_attempts=8,
+                        recovery_delay=1.0,
+                        recovery_timeout=3.0,
+                    )
+                except Exception as exc:
+                    # Never print exception text: it could contain unnecessary
+                    # request/read-back context. The type is enough for evidence.
+                    setter_error_type = type(exc).__name__
+
+                try:
+                    after_write = _config(router)
+                    block = after_write.get(section)
+                    actual_block = block if isinstance(block, dict) else None
+                    pwd_after_write = _password_modified(after_write)
+                except Exception as exc:
+                    if setter_error_type is None:
+                        setter_error_type = type(exc).__name__
+
+                classification, readback_token, key_match = _classify(
+                    token,
+                    synthetic_key,
+                    actual_block,
+                    setter_error_type,
+                )
+            finally:
+                after_restore = _restore_section(router, section, original)
+
+            row = {
+                "section": section,
+                "requested_token": token,
+                "classification": classification,
+                "readback_token": readback_token,
+                "key_match": key_match,
+                "setter_error_type": setter_error_type,
+                "password_modified_before": pwd_before,
+                "password_modified_after_write": pwd_after_write,
+                "password_modified_after_restore": _password_modified(after_restore),
+            }
+            rows.append(row)
+            _print_row(row)
+
+            # Checkpoint after every successfully restored case so a later
+            # interruption does not discard the completed research range.
+            final_password_modified = _password_modified(after_restore)
+            _write_report(
+                report_path,
+                _build_report(
+                    rows=rows,
+                    initial_password_modified=initial_password_modified,
+                    final_password_modified=final_password_modified,
+                    started=started,
+                    start=start,
+                    complete=False,
+                ),
+            )
+
+        final = _config(router)
+        final_password_modified = _password_modified(final)
+        complete = True
+    finally:
+        router.close()
+        # Preserve completed checkpoint rows even if a later case aborts.
+        _write_report(
+            report_path,
+            _build_report(
+                rows=rows,
+                initial_password_modified=initial_password_modified,
+                final_password_modified=final_password_modified,
+                started=started,
+                start=start,
+                complete=complete,
+            ),
+        )
+
+    report = _build_report(
+        rows=rows,
+        initial_password_modified=initial_password_modified,
+        final_password_modified=final_password_modified,
+        started=started,
+        start=start,
+        complete=complete,
     )
 
     print("\nClassification counts:")
-    for key in sorted(counts):
-        print(f"  {key}: {counts[key]}")
+    for key in sorted(report["classification_counts"]):
+        print(f"  {key}: {report['classification_counts'][key]}")
     print(
         "password_modified campaign: "
         f"{initial_password_modified} -> {final_password_modified}"
