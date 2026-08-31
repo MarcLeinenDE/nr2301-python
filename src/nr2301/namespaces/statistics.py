@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
@@ -14,6 +14,7 @@ ClientRequestType = Literal[
     "get_allow_users",
     "get_forbidden_users",
 ]
+FilterModeValue = Literal["black", "white"]
 
 
 class ClientInfo(TypedDict, total=False):
@@ -98,12 +99,50 @@ class StatisticsNamespace:
             ),
         )
 
+    def clear_traffic(self, *, timeout: float | None = None) -> dict[str, Any]:
+        """Clear router traffic/history counters.
+
+        This is a real side effect even though the underlying API method uses
+        GET. The SDK exposes the capability but never calls it from ordinary
+        read-only tests.
+        """
+
+        return cast(
+            dict[str, Any],
+            self._client.call("statistics", "stat_clear_common_data", timeout=timeout),
+        )
+
     def filter_mode(self, *, timeout: float | None = None) -> FilterMode:
         """Return the MAC-filter mode (`black` or `white` on the tested firmware)."""
 
         return cast(
             FilterMode,
             self._client.call("statistics", "get_black_white_mode", timeout=timeout),
+        )
+
+    def set_filter_mode(
+        self,
+        mode: FilterModeValue,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Set the raw Black/White MAC-filter mode.
+
+        Switching to White mode can lock out a management client unless it is
+        provisioned in the allow view. Downstream applications should provide
+        their own confirmation/recovery workflow.
+        """
+
+        if mode not in {"black", "white"}:
+            raise ValueError("mode must be 'black' or 'white'")
+        return cast(
+            dict[str, Any],
+            self._client.call(
+                "statistics",
+                "set_black_white_mode",
+                data={"mode": mode},
+                timeout=timeout,
+            ),
         )
 
     def login_client_mac(self, *, timeout: float | None = None) -> LoginClientMac:
@@ -197,3 +236,101 @@ class StatisticsNamespace:
         """Return the mode-sensitive explicit `get_forbidden_users` view."""
 
         return self.client_view("get_forbidden_users", timeout=timeout)
+
+    def set_alias(
+        self,
+        mac: str,
+        alias: str,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Set a client alias using the exact frontend `mac`/`alias` payload."""
+
+        self._require_nonempty_string(mac, "mac")
+        if not isinstance(alias, str):
+            raise TypeError("alias must be a str")
+        return cast(
+            dict[str, Any],
+            self._client.call(
+                "statistics",
+                "set_alias",
+                data={"mac": mac, "alias": alias},
+                timeout=timeout,
+            ),
+        )
+
+    def set_allow(
+        self,
+        mac: str,
+        enabled: bool,
+        *,
+        alias: str | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Set/remove a client in the mode-sensitive Allow view."""
+
+        return self._set_client_flag(
+            "set_allow", mac, enabled, alias=alias, timeout=timeout
+        )
+
+    def set_forbidden(
+        self,
+        mac: str,
+        enabled: bool,
+        *,
+        alias: str | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Set/remove a client in the mode-sensitive Forbidden view."""
+
+        return self._set_client_flag(
+            "set_forbidden", mac, enabled, alias=alias, timeout=timeout
+        )
+
+    def clear_offline_user(
+        self,
+        mac: str,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Delete one inactive/offline client-history row by MAC."""
+
+        self._require_nonempty_string(mac, "mac")
+        return cast(
+            dict[str, Any],
+            self._client.call(
+                "statistics",
+                "clear_offline_user",
+                data={"mac": mac},
+                timeout=timeout,
+            ),
+        )
+
+    def _set_client_flag(
+        self,
+        method: Literal["set_allow", "set_forbidden"],
+        mac: str,
+        enabled: bool,
+        *,
+        alias: str | None,
+        timeout: float | None,
+    ) -> dict[str, Any]:
+        self._require_nonempty_string(mac, "mac")
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a bool")
+        data: dict[str, Any] = {"mac": mac, "enable": 1 if enabled else 0}
+        if alias is not None:
+            if not isinstance(alias, str):
+                raise TypeError("alias must be a str or None")
+            data["alias"] = alias
+        return cast(
+            dict[str, Any],
+            self._client.call("statistics", method, data=data, timeout=timeout),
+        )
+
+    @staticmethod
+    def _require_nonempty_string(value: str, name: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError(f"{name} must be a str")
+        if not value.strip():
+            raise ValueError(f"{name} must not be empty")
