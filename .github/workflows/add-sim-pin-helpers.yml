@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Add SIM PIN helpers
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-sim-pin-helpers.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]"
+      - run: python tools/add_sim_pin_helpers_once.py
+      - run: python -m pytest tests/test_sim_namespace.py -q
+      - run: python -m py_compile src/nr2301/namespaces/sim.py
+      - name: Commit SIM helpers
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/nr2301/namespaces/sim.py tests/test_sim_namespace.py CHANGELOG.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'Add guarded SIM PIN and PUK helpers'
+          git push
