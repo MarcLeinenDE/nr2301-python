@@ -17,6 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: python -m pip install -e ".[test]"
       - run: python tools/add_wifi_security_helper_once.py
       - run: python -m pytest tests/test_wifi_namespace.py tests/test_wifi_redaction.py -q
       - run: python -m py_compile src/nr2301/namespaces/wifi.py
