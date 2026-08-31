@@ -33,6 +33,11 @@
 - staged physical-test policy for the dedicated non-production router: read-only, reversible-write and destructive/recovery levels, with USB-management-mode mutation explicitly excluded from the current campaign
 - complete-SDK-coverage goal plus mandatory feedback of every new physical SDK finding into `nr2301-api`
 - sanitized `examples/diagnose_auth_transport.py` probe that compares current requests transport with the historically working compact/header shape and an urllib reproduction without reading or transmitting the administrator password
+- `tests/integration/test_reversible_writes.py`, hard-gated by `NR2301_WRITE_INTEGRATION=1`, covering data-roaming, available network-mode, WPS and Wi-Fi Guest/combined-vs-separate transitions with `try/finally` restoration and final exact read-back
+
+### Physical validation
+
+- first full read-only physical SDK smoke completed successfully on 2026-08-31 against the USB-connected NR2301 using Python 3.13.5 and `http://zyxel.home`: all 8 integration groups passed in 4.01 s (version, device health, SIM, mobile, LAN/DNS, Wi-Fi, SMS summary and statistics)
 
 ### Fixed / corrected
 
@@ -45,8 +50,9 @@
 
 ### Current research backlog
 
-- complete the first physical read-only SDK integration run using the canonical `zyxel.home` management host
-- expand physical coverage from the read-only smoke suite into separately gated reversible-write and disruptive/recovery suites
+- run the first hard-gated reversible-write suite on the dedicated physical router and feed every resulting live finding back into `nr2301-api`
+- add the next reversible block for the combined LAN/DHCP/DNS setter after the lower-impact write framework is physically confirmed
+- expand physical coverage into separately gated disruptive/recovery tests
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
 - research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
 - `sim/get_lock_info` remains without a stable high-level JSON helper because the tested firmware returned HTTP 200 with an empty response body; revisit with targeted physical evidence
