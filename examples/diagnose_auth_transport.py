@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Compare current and historical NR2301 pre-auth request transports.
+"""Compare NR2301 pre-auth request transports and WebUI bootstrap state.
 
 This diagnostic intentionally does NOT read NR2301_PASSWORD and does not call
-account/login. It only exercises anonymous/pre-auth reads needed to understand
-`account/get_rand` behavior.
+account/login. It only exercises anonymous/pre-auth requests needed to
+understand `account/get_rand` behavior.
 
 Run with:
 
@@ -23,6 +23,7 @@ import string
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -32,7 +33,7 @@ TIMEOUT = 10.0
 HISTORICAL_HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Content-Type": "application/json",
-    "User-Agent": "NR2301-Auth-Transport-Probe/1",
+    "User-Agent": "NR2301-Auth-Transport-Probe/2",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
 }
@@ -48,7 +49,7 @@ def sanitize(value: Any) -> Any:
         result: dict[str, Any] = {}
         for key, item in value.items():
             lowered = str(key).lower()
-            if lowered in {"rand", "password", "cgisid"}:
+            if lowered in {"rand", "password", "cgisid", "session_id"}:
                 if isinstance(item, str):
                     result[key] = f"<redacted:string-length={len(item)}>"
                 else:
@@ -71,6 +72,13 @@ def decode_payload(raw: bytes) -> Any:
         return text
 
 
+def response_payload(response: requests.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return response.text
+
+
 def show(label: str, status: int | None, headers: dict[str, str], payload: Any) -> None:
     print(f"\n=== {label} ===")
     print(f"HTTP: {status}")
@@ -82,6 +90,10 @@ def show(label: str, status: int | None, headers: dict[str, str], payload: Any) 
     print(json.dumps(sanitize(payload), indent=2, ensure_ascii=False))
 
 
+def cookie_names(session: requests.Session) -> list[str]:
+    return sorted({cookie.name for cookie in session.cookies})
+
+
 def requests_json_post(path: str, method: str, body: dict[str, Any]) -> None:
     session = requests.Session()
     try:
@@ -91,15 +103,11 @@ def requests_json_post(path: str, method: str, body: dict[str, Any]) -> None:
             json=body,
             timeout=TIMEOUT,
         )
-        try:
-            payload: Any = response.json()
-        except ValueError:
-            payload = response.text
         show(
             f"requests/json {path}/{method}",
             response.status_code,
             dict(response.headers),
-            payload,
+            response_payload(response),
         )
     finally:
         session.close()
@@ -115,15 +123,11 @@ def requests_historical_post(path: str, method: str, body: dict[str, Any]) -> No
             headers=HISTORICAL_HEADERS,
             timeout=TIMEOUT,
         )
-        try:
-            payload: Any = response.json()
-        except ValueError:
-            payload = response.text
         show(
             f"requests/historical-shape {path}/{method}",
             response.status_code,
             dict(response.headers),
-            payload,
+            response_payload(response),
         )
     finally:
         session.close()
@@ -164,11 +168,74 @@ def requests_get_feature_list() -> None:
             params={"path": "router", "method": "get_feature_list", "timeout": "10"},
             timeout=TIMEOUT,
         )
-        try:
-            payload: Any = response.json()
-        except ValueError:
-            payload = response.text
-        show("anonymous control router/get_feature_list", response.status_code, dict(response.headers), payload)
+        show(
+            "anonymous control router/get_feature_list",
+            response.status_code,
+            dict(response.headers),
+            response_payload(response),
+        )
+    finally:
+        session.close()
+
+
+def bootstrap_then_preauth(user_id: str) -> None:
+    """Load the WebUI root and reuse exactly that session for pre-auth calls."""
+
+    session = requests.Session()
+    try:
+        root = session.get(
+            f"{BASE_URL}/",
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "User-Agent": "Mozilla/5.0 NR2301-Bootstrap-Probe/1",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+            timeout=TIMEOUT,
+            allow_redirects=True,
+        )
+        parsed = urlparse(root.url)
+        print("\n=== WebUI bootstrap GET / ===")
+        print(f"HTTP: {root.status_code}")
+        print(f"Redirect count: {len(root.history)}")
+        print(f"Final path: {parsed.path or '/'}")
+        print(f"HTML/body bytes: {len(root.content)}")
+        names = cookie_names(session)
+        print(f"Session cookie names: {names if names else '<none>'}")
+        print("Cookie values are intentionally not printed.")
+
+        raw_retry = json.dumps({"type": "admin"}, separators=(",", ":")).encode("utf-8")
+        retry = session.post(
+            f"{BASE_URL}/api.cgi?path=account&method=get_retrytimes_and_time&timeout=10",
+            data=raw_retry,
+            headers=HISTORICAL_HEADERS,
+            timeout=TIMEOUT,
+        )
+        show(
+            "same-session after WebUI bootstrap account/get_retrytimes_and_time",
+            retry.status_code,
+            dict(retry.headers),
+            response_payload(retry),
+        )
+
+        raw_rand = json.dumps(
+            {"type": "admin", "user_id": user_id},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        rand = session.post(
+            f"{BASE_URL}/api.cgi?path=account&method=get_rand&timeout=10",
+            data=raw_rand,
+            headers=HISTORICAL_HEADERS,
+            timeout=TIMEOUT,
+        )
+        show(
+            "same-session after WebUI bootstrap account/get_rand",
+            rand.status_code,
+            dict(rand.headers),
+            response_payload(rand),
+        )
+        names_after = cookie_names(session)
+        print(f"Session cookie names after pre-auth calls: {names_after if names_after else '<none>'}")
     finally:
         session.close()
 
@@ -185,8 +252,6 @@ def main() -> None:
     requests_historical_post("account", "get_retrytimes_and_time", retry_body)
     urllib_historical_post("account", "get_retrytimes_and_time", retry_body)
 
-    # Use one identical known-good-shape user_id for all variants so only the
-    # transport representation changes between calls.
     user_id = random_user_id()
     rand_body = {"type": "admin", "user_id": user_id}
     print("\nGenerated user_id shape: [a-z0-9]{8} (actual value intentionally not printed)")
@@ -194,10 +259,13 @@ def main() -> None:
     requests_historical_post("account", "get_rand", rand_body)
     urllib_historical_post("account", "get_rand", rand_body)
 
+    bootstrap_then_preauth(user_id)
+
     print("\nInterpretation guide:")
-    print("- historical variants succeed but requests/json fails: transport representation matters")
-    print("- urllib succeeds but both requests variants fail: library/session-level behavior matters")
-    print("- all get_rand variants return the same result: investigate router/session/account state next")
+    print("- bootstrap session succeeds where isolated calls fail: WebUI bootstrap/session state matters")
+    print("- bootstrap sets a cookie but account calls still return 4: cookie alone is insufficient")
+    print("- bootstrap sets no cookie and calls still return 4: move to sanitized browser network capture")
+    print("- all variants return the same result: current router/browser flow has another pre-auth difference")
 
 
 if __name__ == "__main__":
