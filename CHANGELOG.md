@@ -31,6 +31,12 @@
 - `client.sms.delete()` using the normalized single-ID request and verified deletion success fields
 - explicitly opt-in physical-router integration tests guarded by `NR2301_INTEGRATION=1`; the initial smoke suite is read-only and deliberately avoids high-sensitivity identity/Wi-Fi-key/SMS-content reads
 
+### Fixed
+
+- restored the known live-working administrator login `user_id` format to eight lowercase alphanumeric characters (`[a-z0-9]{8}`) instead of the initial SDK's invented 32-character hexadecimal value; the latter reproducibly received `account/get_rand result=4` during the first physical USB smoke test
+- restored the pre-login `account/get_retrytimes_and_time` guard so the SDK waits on an active lockout and refuses to consume the final remaining password attempt
+- kept the 0..6 login result mapping scoped to `account/login`; `account/get_rand.result` is not interpreted through that table without endpoint-specific evidence
+
 ### Deliberately deferred
 
 - SIM PIN/PUK writes are not exposed: those public API paths remain static-only / `DO_NOT_TEST_FOR_COVERAGE`
