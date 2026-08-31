@@ -17,6 +17,24 @@ Current assumptions:
 
 This is broader permission than the initial read-only smoke phase, but physical testing remains gated so ordinary `pytest` and CI can never mutate a router accidentally.
 
+## Canonical management host
+
+On the tested firmware `V1.00(ACIY.3)C0`, `zyxel.home` resolves to the same management address as `192.168.1.1`, but administrator pre-auth calls are host/authority sensitive.
+
+Physical USB A/B testing on 2026-08-31 showed:
+
+```text
+http://192.168.1.1
+  account/get_retrytimes_and_time -> result=4
+  account/get_rand                -> result=4
+
+http://zyxel.home
+  account/get_retrytimes_and_time -> result=0, retry_times=5, remain_time=0
+  account/get_rand                -> result=0, rand=<8-byte challenge>
+```
+
+The result was independent of requests-vs-urllib transport, compact JSON/header reproduction, WebUI bootstrap and prior explicit WebUI logout. Use `http://zyxel.home` for administrator login on this firmware. Anonymous/status reads may still work through the direct IP and therefore do not prove that the direct IP is suitable for login.
+
 ## Test levels
 
 ### Level 1 — read-only
@@ -105,7 +123,7 @@ NR2301_PASSWORD=<router admin password>
 Optional variables:
 
 ```text
-NR2301_URL=http://192.168.1.1
+NR2301_URL=http://zyxel.home
 NR2301_USERNAME=admin
 ```
 
@@ -116,7 +134,7 @@ NR2301_USERNAME=admin
 ```powershell
 $env:NR2301_INTEGRATION = "1"
 $env:NR2301_PASSWORD = "<password>"
-$env:NR2301_URL = "http://192.168.1.1"
+$env:NR2301_URL = "http://zyxel.home"
 
 python -m pytest tests/integration/test_readonly_router.py -v
 ```
@@ -135,7 +153,7 @@ Remove-Item Env:NR2301_DESTRUCTIVE_INTEGRATION -ErrorAction SilentlyContinue
 ```bat
 set NR2301_INTEGRATION=1
 set NR2301_PASSWORD=<password>
-set NR2301_URL=http://192.168.1.1
+set NR2301_URL=http://zyxel.home
 python -m pytest tests/integration/test_readonly_router.py -v
 set NR2301_PASSWORD=
 set NR2301_INTEGRATION=
@@ -146,7 +164,7 @@ set NR2301_INTEGRATION=
 ```bash
 NR2301_INTEGRATION=1 \
 NR2301_PASSWORD='<password>' \
-NR2301_URL='http://192.168.1.1' \
+NR2301_URL='http://zyxel.home' \
 python -m pytest tests/integration/test_readonly_router.py -v
 ```
 
@@ -166,4 +184,4 @@ The goal is complete protocol evidence, not publication of the maintainer's real
 
 ## CI behavior
 
-GitHub Actions does not set any `NR2301_*_INTEGRATION` physical-test flag, so physical-router modules are skipped and no network attempt is made toward the default router address.
+GitHub Actions does not set any `NR2301_*_INTEGRATION` physical-test flag, so physical-router modules are skipped and no network attempt is made toward the default router host.
