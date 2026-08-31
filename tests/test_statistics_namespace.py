@@ -114,6 +114,78 @@ def test_normalized_client_view_rejects_unknown_token_before_network_access():
     assert session.calls == []
 
 
+def test_set_alias_uses_exact_payload():
+    payload = {"result": 0}
+    client, session = authenticated_client(payload)
+
+    assert client.statistics.set_alias("02:00:00:00:00:01", "Lab client") == payload
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["method"] == "set_alias"
+    assert kwargs["json"] == {
+        "mac": "02:00:00:00:00:01",
+        "alias": "Lab client",
+    }
+
+
+def test_allow_and_forbidden_helpers_use_integer_enable_and_optional_alias():
+    client, session = authenticated_client({"result": 0}, {"result": 0}, {"result": 0})
+
+    client.statistics.set_allow("02:00:00:00:00:01", True, alias="Allowed")
+    client.statistics.set_forbidden("02:00:00:00:00:02", True, alias="Blocked")
+    client.statistics.set_forbidden("02:00:00:00:00:02", False)
+
+    assert session.calls[0][2]["json"] == {
+        "mac": "02:00:00:00:00:01",
+        "enable": 1,
+        "alias": "Allowed",
+    }
+    assert session.calls[1][2]["json"] == {
+        "mac": "02:00:00:00:00:02",
+        "enable": 1,
+        "alias": "Blocked",
+    }
+    assert session.calls[2][2]["json"] == {
+        "mac": "02:00:00:00:00:02",
+        "enable": 0,
+    }
+
+
+def test_filter_clear_helpers_use_documented_contracts():
+    client, session = authenticated_client({"result": 0}, {"result": 0}, {"statistics": {}})
+
+    client.statistics.set_filter_mode("white")
+    client.statistics.clear_offline_user("02:00:00:00:00:03")
+    client.statistics.clear_traffic()
+
+    assert session.calls[0][0] == "POST"
+    assert session.calls[0][2]["params"]["method"] == "set_black_white_mode"
+    assert session.calls[0][2]["json"] == {"mode": "white"}
+
+    assert session.calls[1][0] == "POST"
+    assert session.calls[1][2]["params"]["method"] == "clear_offline_user"
+    assert session.calls[1][2]["json"] == {"mac": "02:00:00:00:00:03"}
+
+    assert session.calls[2][0] == "GET"
+    assert session.calls[2][2]["params"]["method"] == "stat_clear_common_data"
+    assert "json" not in session.calls[2][2]
+
+
+def test_statistics_mutation_helpers_validate_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="mode must"):
+        client.statistics.set_filter_mode("grey")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="mac must not be empty"):
+        client.statistics.set_alias("", "x")
+    with pytest.raises(TypeError, match="alias must be a str"):
+        client.statistics.set_alias("02:00:00:00:00:01", 1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="enabled must be a bool"):
+        client.statistics.set_forbidden("02:00:00:00:00:01", 1)  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
 def test_statistics_traffic_preserves_counter_values():
     payload = {
         "statistics": {
