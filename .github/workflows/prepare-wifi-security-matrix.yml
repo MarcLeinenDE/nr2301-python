@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Prepare Wi-Fi security matrix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/prepare-wifi-security-matrix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/prepare_wifi_security_matrix_once.py
+      - run: python -m py_compile examples/explore_wifi_security_matrix.py tests/integration/test_wifi_field_writes.py tests/integration/test_wifi_extended_writes.py
+      - name: Commit prepared matrix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/integration/test_wifi_field_writes.py tests/integration/test_wifi_extended_writes.py CHANGELOG.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'Harden Wi-Fi restore checks and record extended pass'
+          git push
