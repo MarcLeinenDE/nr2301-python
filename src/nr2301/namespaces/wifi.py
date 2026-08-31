@@ -56,6 +56,8 @@ _GUEST_VERIFY_FIELDS = (
     "maxassoc",
 )
 
+_WIFI_SECRET_FIELDS = {"ssid", "key", "password", "passphrase", "psk", "secret"}
+
 
 class WiFiAPConfig(TypedDict, total=False):
     """Known top-level fields from `wireless/wifi_get_ap_config.config`."""
@@ -408,8 +410,8 @@ class WiFiNamespace:
 
         details: dict[str, Any] = {
             "section": section,
-            "expected_changes": dict(changes),
-            "actual": last_actual,
+            "expected_changes": self._redact_wifi_value(dict(changes)),
+            "actual": self._redact_wifi_value(last_actual),
         }
         if write_error is not None:
             details["write_transport_error"] = type(write_error).__name__
@@ -420,6 +422,77 @@ class WiFiNamespace:
             "Wi-Fi AP write could not be verified by read-back; the router may "
             "still be recovering or the management host may need to reconnect "
             "to the changed Wi-Fi network",
+            method_id="wireless/wifi_set_ap_config",
+            response=details,
+        )
+
+    def update_global_settings(
+        self,
+        changes: Mapping[str, Any],
+        *,
+        write_timeout: float = 30.0,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> WiFiAPConfigResponse:
+        """Update evidenced top-level AP settings with recovery/read-back.
+
+        Supported fields are currently `switch`, `maxassoc` and `power_level`.
+        `mode` has dedicated state-machine helpers because it requires AP-block
+        preservation.
+        """
+
+        allowed = {"switch", "maxassoc", "power_level"}
+        if not isinstance(changes, Mapping) or not changes:
+            raise ValueError("changes must be a non-empty mapping")
+        unknown = set(changes) - allowed
+        if unknown:
+            raise ValueError(f"unsupported top-level Wi-Fi setting(s): {sorted(unknown)!r}")
+        self._validate_recovery_args(
+            write_timeout, recovery_attempts, recovery_delay, recovery_timeout
+        )
+
+        before = self.config()
+        before_config = self._extract_config(before)
+        if all(str(before_config.get(key)) == str(value) for key, value in changes.items()):
+            return before
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.call(
+                "wireless",
+                "wifi_set_ap_config",
+                data=dict(changes),
+                timeout=write_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: WiFiAPConfigResponse | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.config(timeout=recovery_timeout)
+                last_actual = actual
+                config = self._extract_config(actual)
+                if all(str(config.get(key)) == str(value) for key, value in changes.items()):
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                last_error = self._try_relogin(last_error)
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected_changes": self._redact_wifi_value(dict(changes)),
+            "actual": self._redact_wifi_value(last_actual),
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "top-level Wi-Fi setting could not be verified by read-back",
             method_id="wireless/wifi_set_ap_config",
             response=details,
         )
@@ -601,6 +674,19 @@ class WiFiNamespace:
             if str(actual) != str(wanted):
                 return False
         return True
+
+    @staticmethod
+    def _redact_wifi_value(value: Any, *, field: str | None = None) -> Any:
+        if field is not None and field.lower() in _WIFI_SECRET_FIELDS:
+            return "<redacted>"
+        if isinstance(value, Mapping):
+            return {
+                str(key): WiFiNamespace._redact_wifi_value(item, field=str(key))
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [WiFiNamespace._redact_wifi_value(item) for item in value]
+        return value
 
     @staticmethod
     def _extract_wps_enable(response: Mapping[str, Any]) -> str:

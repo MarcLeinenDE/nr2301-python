@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import os
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -103,7 +104,7 @@ def test_5g_channel_fixed_and_restore_auto() -> None:
         router.close()
 
 
-@pytest.mark.parametrize("section", ["wifi_if_24G", "wifi_if_5G"])
+@pytest.mark.parametrize("section", ["wifi_if_24G", "wifi_if_5G", "wifi_if_DUAL", "wifi_if_GUEST"])
 def test_hidden_toggle_and_restore(section: str) -> None:
     router = _client()
     try:
@@ -151,21 +152,11 @@ def test_global_maxassoc_31_and_restore() -> None:
         # contract being established. Never generalize the accepted value into
         # a range until the physical result is normalized upstream.
         try:
-            router.call(
-                "wireless",
-                "wifi_set_ap_config",
-                data={"maxassoc": target},
-                timeout=30.0,
-            )
-            assert str(_config(router).get("maxassoc")) == target
+            actual = router.wifi.update_global_settings({"maxassoc": target})
+            assert str(actual["config"].get("maxassoc")) == target
         finally:
             if str(_config(router).get("maxassoc")) != original:
-                router.call(
-                    "wireless",
-                    "wifi_set_ap_config",
-                    data={"maxassoc": original},
-                    timeout=30.0,
-                )
+                router.wifi.update_global_settings({"maxassoc": original})
             assert str(_config(router).get("maxassoc")) == original
     finally:
         router.close()
@@ -179,13 +170,15 @@ def test_timed_off_block_enable_and_restore() -> None:
         current_enable = int(target.get("enable", 0))
         target["enable"] = 0 if current_enable else 1
         if target["enable"] == 1:
-            # A short, valid-looking schedule that should not overlap the
-            # current local time for long. We test persistence, not timer fire.
+            # Place the test window six hours ahead of the PC clock so the
+            # schedule is not expected to fire during this short persistence test.
+            start = datetime.now() + timedelta(hours=6)
+            end = start + timedelta(minutes=2)
             target.update({
-                "start_hour": 3,
-                "start_minute": 17,
-                "end_hour": 3,
-                "end_minute": 19,
+                "start_hour": start.hour,
+                "start_minute": start.minute,
+                "end_hour": end.hour,
+                "end_minute": end.minute,
             })
         try:
             actual = router.wifi.update_ap_section("wifi_timed_off", target)
@@ -193,5 +186,22 @@ def test_timed_off_block_enable_and_restore() -> None:
                 assert actual.get(key) == value
         finally:
             _restore_section(router, "wifi_timed_off", original)
+    finally:
+        router.close()
+
+
+def test_master_switch_off_and_restore() -> None:
+    router = _client()
+    try:
+        original = str(_config(router)["switch"])
+        assert original in {"on", "off"}
+        target = "off" if original == "on" else "on"
+        try:
+            actual = router.wifi.update_global_settings({"switch": target})
+            assert str(actual["config"].get("switch")) == target
+        finally:
+            if str(_config(router).get("switch")) != original:
+                router.wifi.update_global_settings({"switch": original})
+            assert str(_config(router).get("switch")) == original
     finally:
         router.close()
