@@ -9,7 +9,7 @@ This SDK is built against the independently reverse-engineered API reference pub
 
 ## Status
 
-`0.1.0.dev0` is the first SDK development baseline. It intentionally grows from the transport/authentication foundation into evidence-backed high-level helpers instead of pretending that all 157 documented API methods already have a stable Python wrapper.
+`0.1.0.dev0` is the current SDK development line. The long-term target is evidence-backed coverage of all locally usable NR2301 API capabilities, not just the feature set of the earlier private application. Safety classifications drive warnings/test gates/recovery behavior; downstream applications decide which SDK capabilities they expose.
 
 Implemented so far:
 
@@ -33,9 +33,9 @@ Implemented so far:
 
 Planned next:
 
-- additional evidence-backed namespace helpers where they provide useful high-level behavior
-- first local run of the read-only integration suite against a physical NR2301
-- package/release audit before the first stable SDK release
+- continue physical coverage of reversible and disruptive API capabilities, including Wi-Fi field-level controls that the earlier private app did not implement
+- close incomplete upstream contracts and expose every sufficiently evidenced local capability through the SDK
+- keep feeding all physical findings back into `nr2301-api` before the first stable SDK release audit
 
 ## Install for development
 
@@ -58,7 +58,7 @@ import os
 from nr2301 import NR2301Client
 
 with NR2301Client(
-    "http://192.168.1.1",
+    "http://zyxel.home",
     username="admin",
     password=os.environ["NR2301_PASSWORD"],
 ) as router:
@@ -131,7 +131,7 @@ print(summary)
 
 Unknown numeric values are preserved and displayed as `Unknown (<raw>)`; they are not coerced into a guessed state.
 
-PIN/PUK writes are intentionally not exposed. The public API classifies those paths as static-only / `DO_NOT_TEST_FOR_COVERAGE`, and retry exhaustion can lock a SIM.
+PIN/PUK writes are not exposed **yet** because their complete live contracts still need deliberate physical verification. They remain SDK coverage targets; retry-consuming tests require an explicit scenario and recovery plan rather than broad probing.
 
 `sim/get_lock_info` is also not wrapped as a high-level helper because the tested firmware returned HTTP 200/application-json with a zero-length body rather than a stable JSON contract.
 
@@ -330,7 +330,7 @@ NR2301_INTEGRATION=1
 
 and supplies the password through `NR2301_PASSWORD`.
 
-The first integration suite is **read-only** and deliberately avoids high-sensitivity surfaces such as complete device identity, MAC inventory, Wi-Fi configuration/keys and SMS mailbox content.
+Physical tests are split into explicit risk tiers: read-only, reversible-write and destructive/recovery. Ordinary CI enables none of them. The dedicated test router is used to expand coverage while sensitive output is sanitized and USB-management-mode mutation remains temporarily excluded as the active recovery channel.
 
 See [`docs/integration-testing.md`](docs/integration-testing.md) for PowerShell, cmd.exe and Linux/macOS examples and the exact safety model.
 

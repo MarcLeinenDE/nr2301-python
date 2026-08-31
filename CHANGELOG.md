@@ -4,6 +4,7 @@
 
 ### Added
 
+- clarified the SDK architecture as a complete router-capability layer: safety classifications control warnings/test gates/recovery requirements, while downstream apps/integrations decide which verified capabilities to expose; the older private app is evidence, not a feature-scope ceiling
 - initial `0.1.0.dev0` SDK scaffold
 - administrator challenge authentication
 - generic single-call and multicall transport
@@ -38,6 +39,7 @@
 
 ### Physical validation
 
+- combined LAN/DHCP/DNS physical write test passed on 2026-08-31: DNS-only mutation preserved all seven non-DNS fields and the complete original 12-field object was restored exactly
 - first full read-only physical SDK smoke completed successfully on 2026-08-31 against the USB-connected NR2301 using Python 3.13.5 and `http://zyxel.home`: all 8 integration groups passed in 4.01 s (version, device health, SIM, mobile, LAN/DNS, Wi-Fi, SMS summary and statistics)
 - first reversible physical write suite completed successfully on 2026-08-31: all 4 tests passed in 51.09 s, covering data-roaming toggle/restore, one router-reported alternative network-mode change/restore, WPS toggle/restore, and Wi-Fi Guest plus combined/separate state-machine transitions with final original-state restoration
 

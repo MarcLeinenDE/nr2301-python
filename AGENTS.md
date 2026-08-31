@@ -33,6 +33,20 @@ Complete coverage does not mean inventing wrappers for unknown contracts. For me
 
 A method may start as a close-to-wire namespace helper and later gain a more ergonomic high-level helper when semantics are sufficiently proven. The generic `client.call()` / `client.multicall()` APIs remain useful escape hatches, but they do not by themselves satisfy the long-term complete-SDK-coverage target.
 
+### Capability layer vs consumer policy
+
+The SDK is a **capability layer**, not the product-policy layer for downstream applications.
+
+If a local NR2301 capability is sufficiently reconstructed and evidence-backed, its risk classification is **not** a reason to omit it from the SDK. Safety metadata determines documentation, warnings, physical-test gates, recovery requirements and sensible helper design; it does not decide whether a verified router capability may exist in the reusable SDK.
+
+Examples include Wi-Fi channel/bandwidth/power/SSID/security controls, LAN/DHCP, firewall/NAT, MAC filtering, traffic reset, VPN, SMS/phonebook, SIM/PIN/PUK, reboot and factory reset when their contracts are sufficiently established.
+
+A downstream Android app, Home Assistant integration, CLI or other consumer decides its own policy: which SDK capabilities to expose, hide, require confirmation for, restrict to expert/admin mode, or omit entirely.
+
+The earlier private NR2301 application is only a historical evidence source. Its feature set is **not** the SDK scope ceiling. Features that application never implemented must still be researched, physically verified where feasible, normalized upstream and added here when supported by the router.
+
+The current USB-management-mode mutation exclusion is a temporary **test-campaign recovery constraint**, not a permanent SDK capability-policy exclusion. A verified USB-mode API may still be represented later once it can be tested without sacrificing the active recovery channel.
+
 ### Mandatory API feedback loop
 
 Physical SDK testing is also API research. When an SDK test reveals anything not already represented accurately upstream, update `nr2301-api` as part of the same work stream.
