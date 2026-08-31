@@ -39,11 +39,28 @@ def _config(router: NR2301Client) -> dict:
     return config
 
 
+def _mismatched_fields(actual: dict, expected: dict) -> list[str]:
+    return sorted(
+        key
+        for key in set(actual) | set(expected)
+        if actual.get(key) != expected.get(key)
+    )
+
+
 def _restore_section(router: NR2301Client, section: str, original: dict) -> None:
     current = _config(router).get(section)
     if current != original:
         router.wifi.update_ap_section(section, original)
-    assert _config(router).get(section) == original
+    final = _config(router).get(section)
+    if not isinstance(final, dict):
+        pytest.fail(f"{section} restore returned no mapping")
+    if final != original:
+        # Never let pytest introspection print complete AP blocks: they can
+        # contain the real SSID and Wi-Fi key. Field names are sufficient.
+        pytest.fail(
+            f"{section} restore mismatch in fields: "
+            f"{_mismatched_fields(final, original)}"
+        )
 
 
 def _restore_global(router: NR2301Client, field: str, original: str) -> None:

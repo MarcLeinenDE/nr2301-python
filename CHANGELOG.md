@@ -4,6 +4,7 @@
 
 ### Added
 
+- added `examples/explore_wifi_security_matrix.py`, a hard-gated sanitized 13-token × 4-section Wi-Fi security explorer that classifies accepted/coerced/unverified results, uses only synthetic keys, restores every AP block and writes a shareable credential-free JSON report while tracking the raw `password_modified` marker
 - added `tests/integration/test_wifi_extended_writes.py` for the next capability round: exploratory top-level `power_level` candidates, global/Guest max-client lower-bound probes, Guest band selection, synthetic SSID writes, runtime-advertised upper/DFS channel paths, exhaustive original-WebUI net-mode/bandwidth tokens, and sanitized authenticated Wi-Fi scan verification
 - added jurisdiction-neutral radio-capability policy and physical Wi-Fi write/restore coverage for the original WebUI 2.4/5-GHz net-mode and bandwidth enums; the SDK does not impose Germany/EU-specific radio limits
 - clarified the SDK architecture as a complete router-capability layer: safety classifications control warnings/test gates/recovery requirements, while downstream apps/integrations decide which verified capabilities to expose; the older private app is evidence, not a feature-scope ceiling
@@ -41,6 +42,7 @@
 
 ### Physical validation
 
+- extended Wi-Fi capability suite passed on 2026-08-31: all 18 cases passed in 226.96 s, confirming raw `power_level` values 0/1/2, global and Guest maxassoc=1, Guest 2.4G/5G band mode, synthetic SSID writes on all four AP blocks, 2.4-GHz channel 13, 5-GHz channels 52/100/140 including DFS-class paths, every source-known WebUI net-mode/bandwidth token, and normal-admin `wifi_scan`, with original state restored after every mutation
 - comprehensive Wi-Fi field suite passed on 2026-08-31: all 15 cases passed in 178.96 s, covering representative 2.4/5-GHz fixed channels, Hidden on 24G/5G/DUAL/Guest, AP isolation on both bands, global maxassoc, timed-off persistence, master Wi-Fi switch, per-band net-mode and bandwidth changes, with exact read-back and final original-state restoration
 - combined LAN/DHCP/DNS physical write test passed on 2026-08-31: DNS-only mutation preserved all seven non-DNS fields and the complete original 12-field object was restored exactly
 - first full read-only physical SDK smoke completed successfully on 2026-08-31 against the USB-connected NR2301 using Python 3.13.5 and `http://zyxel.home`: all 8 integration groups passed in 4.01 s (version, device health, SIM, mobile, LAN/DNS, Wi-Fi, SMS summary and statistics)
@@ -48,6 +50,7 @@
 
 ### Fixed / corrected
 
+- hardened physical Wi-Fi restore assertions so a failed restore reports only mismatching field names instead of allowing pytest to render complete AP dictionaries containing real SSIDs/keys
 - hardened Wi-Fi write diagnostics so SSID/key/password-like fields are redacted from verification failures, and added a recovery/read-back helper for top-level Wi-Fi settings used by the physical capability campaign
 - changed the default management URL from direct `http://192.168.1.1` to canonical `http://zyxel.home` after physical USB A/B testing proved administrator pre-auth is host/authority sensitive on firmware `V1.00(ACIY.3)C0`; both names resolve to the same IP, but the direct-IP path returns `result=4` while `zyxel.home` returns normal pre-auth success
 - added a targeted authentication error hint when the tested direct management IP returns `result=4`, pointing callers to `http://zyxel.home`
@@ -58,8 +61,7 @@
 
 ### Current research backlog
 
-- run the extended Wi-Fi capability matrix and normalize accepted/rejected `power_level`, DFS/boundary-channel, Guest-band/max-client and exhaustive WebUI enum results upstream
-- physically verify Wi-Fi credential/security mutation separately with synthetic SSIDs/keys while tracking whether `password_modified` changes persistently
+- run the sanitized 13-token × 4-section Wi-Fi encryption/key matrix, normalize accepted/coerced/rejected behavior upstream and determine from physical transitions whether the raw `password_modified` marker is a persistent latch or another state indicator
 - expand physical coverage into separately gated disruptive/recovery tests
 - close incomplete API contracts and then expose the corresponding SDK methods until all locally usable API functionality is represented
 - research SIM PIN/PUK mutation paths deliberately on the dedicated test router without broad retry-consuming probes
