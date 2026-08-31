@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
+
+
+ClientRequestType = Literal[
+    "get_active_users",
+    "get_inactive_users",
+    "get_allow_users",
+    "get_forbidden_users",
+]
 
 
 class ClientInfo(TypedDict, total=False):
@@ -63,7 +71,7 @@ class TrafficTransportResponse(TypedDict, total=False):
 
 
 class StatisticsNamespace:
-    """Safe traffic/client-statistics reads backed by public API evidence."""
+    """Traffic/client-statistics helpers backed by public API evidence."""
 
     def __init__(self, client: NR2301Client) -> None:
         self._client = client
@@ -119,11 +127,13 @@ class StatisticsNamespace:
     ) -> ClientInfoResponse:
         """Return a client inventory/filter view.
 
-        With no `request_type`, use the live-verified body-less GET variant.
-        When an advanced caller supplies a `request_type`, it is passed through
-        exactly as a top-level POST field. The SDK deliberately does not invent
-        active/inactive/allow/forbidden aliases until those raw request-type
-        tokens are normalized as a stable public contract.
+        With no `request_type`, use the independently live-verified body-less
+        GET variant.
+
+        Advanced callers may pass a raw `request_type` string through exactly.
+        For the four shipped-frontend values, prefer the typed convenience
+        helpers `active_clients()`, `inactive_clients()`, `allow_clients()` and
+        `forbidden_clients()`.
         """
 
         if request_type is None:
@@ -150,3 +160,40 @@ class StatisticsNamespace:
                 timeout=timeout,
             ),
         )
+
+    def client_view(
+        self,
+        request_type: ClientRequestType,
+        *,
+        timeout: float | None = None,
+    ) -> ClientInfoResponse:
+        """Return one of the four exact shipped-frontend client views."""
+
+        if request_type not in {
+            "get_active_users",
+            "get_inactive_users",
+            "get_allow_users",
+            "get_forbidden_users",
+        }:
+            raise ValueError(f"unsupported normalized client request_type: {request_type!r}")
+        return self.clients(request_type=request_type, timeout=timeout)
+
+    def active_clients(self, *, timeout: float | None = None) -> ClientInfoResponse:
+        """Return the explicit `get_active_users` client view."""
+
+        return self.client_view("get_active_users", timeout=timeout)
+
+    def inactive_clients(self, *, timeout: float | None = None) -> ClientInfoResponse:
+        """Return the explicit inactive/offline `get_inactive_users` view."""
+
+        return self.client_view("get_inactive_users", timeout=timeout)
+
+    def allow_clients(self, *, timeout: float | None = None) -> ClientInfoResponse:
+        """Return the mode-sensitive explicit `get_allow_users` view."""
+
+        return self.client_view("get_allow_users", timeout=timeout)
+
+    def forbidden_clients(self, *, timeout: float | None = None) -> ClientInfoResponse:
+        """Return the mode-sensitive explicit `get_forbidden_users` view."""
+
+        return self.client_view("get_forbidden_users", timeout=timeout)
