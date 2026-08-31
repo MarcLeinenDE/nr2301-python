@@ -32,6 +32,13 @@ from .mobile import (
     SignalInfo,
     WANContext,
 )
+from .phonebook import (
+    PhonebookContact,
+    PhonebookContactsResponse,
+    PhonebookGroup,
+    PhonebookGroupsResponse,
+    PhonebookNamespace,
+)
 from .sim import (
     PinPukStatus,
     SIMNamespace,
@@ -109,6 +116,11 @@ __all__ = [
     "MobileNamespace",
     "NetworkSettings",
     "NetworkSettingsResponse",
+    "PhonebookContact",
+    "PhonebookContactsResponse",
+    "PhonebookGroup",
+    "PhonebookGroupsResponse",
+    "PhonebookNamespace",
     "PinPukStatus",
     "RouterDiagnostics",
     "RuntimeInfo",
