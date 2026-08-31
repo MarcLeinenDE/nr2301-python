@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors
 ### Added
 
 - added `client.sim.provide_pin()`, `enable_pin()`, `disable_pin()`, `change_pin()` and `reset_pin_using_puk()` using the exact normalized frontend payloads; helpers never log secrets and apply a default retry-budget guard that preserves the final PIN/PUK attempt while remaining explicitly overridable for deliberate recovery use

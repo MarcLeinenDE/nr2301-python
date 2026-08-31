@@ -176,3 +176,85 @@ def test_sms_delete_validates_id_before_network_access():
         client.sms.delete(True)  # type: ignore[arg-type]
 
     assert session.calls == []
+
+
+def test_sms_get_by_id_uses_exact_nested_string_id_contract():
+    response = {"sms": {"resp": 0, "id": 42, "type": 2, "body": "0041"}}
+    client, session = authenticated_client(response)
+
+    assert client.sms.get_by_id(42) == response
+
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["method"] == "sms.get_by_id"
+    assert kwargs["json"] == {"sms": {"id": "42"}}
+
+
+def test_sms_get_by_id_validates_id_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="non-negative integer"):
+        client.sms.get_by_id("-1")
+    with pytest.raises(TypeError, match="int or numeric str"):
+        client.sms.get_by_id(True)  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
+def test_sms_save_draft_matches_historical_live_wire_contract():
+    response = {"sms": {"resp": 0, "smsSaveSucc": 1, "smsSaveFail": 0}}
+    client, session = authenticated_client(response)
+
+    assert client.sms.save_draft(" 0000000000 ", "Draft") == response
+
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["method"] == "sms.save"
+    sms = kwargs["json"]["sms"]
+    assert sms["id"] == "-1"
+    assert sms["gsm7"] is True
+    assert sms["address"] == "0000000000,"
+    assert sms["body"] == "00440072006100660074"
+    assert sms["type"] == "2"
+    assert sms["protocol"] == "0"
+    assert re.fullmatch(r"\d{1,2},\d{1,2},\d{1,2},\d{1,2},\d{1,2},\d{1,2},(?:\+|-)\d+(?:\.\d+)?", sms["date"])
+
+
+def test_sms_save_draft_updates_existing_id_and_preserves_gsm7_boolean():
+    response = {"sms": {"resp": "0", "smsSaveSucc": "1", "smsSaveFail": "0"}}
+    client, session = authenticated_client(response)
+
+    client.sms.save_draft("0000000000", "Hi 😊", message_id="42")
+
+    sms = session.calls[0][2]["json"]["sms"]
+    assert sms["id"] == "42"
+    assert sms["gsm7"] is False
+    assert sms["body"] == "004800690020D83DDE0A"
+
+
+def test_sms_save_draft_rejects_unconfirmed_response_without_content_leak():
+    client, _ = authenticated_client(
+        {"sms": {"resp": 0, "smsSaveSucc": 0, "smsSaveFail": 1, "body": "secret"}}
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.sms.save_draft("0000000000", "private draft")
+
+    assert exc_info.value.method_id == "sms/sms.save"
+    assert exc_info.value.response == {
+        "sms": {"resp": 0, "smsSaveSucc": 0, "smsSaveFail": 1}
+    }
+
+
+def test_sms_save_draft_validates_inputs_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="recipient must not be empty"):
+        client.sms.save_draft("   ", "Draft")
+    with pytest.raises(ValueError, match="message must not be empty"):
+        client.sms.save_draft("0000000000", "")
+    with pytest.raises(ValueError, match="-1 or a non-negative integer"):
+        client.sms.save_draft("0000000000", "Draft", message_id="abc")
+
+    assert session.calls == []
+

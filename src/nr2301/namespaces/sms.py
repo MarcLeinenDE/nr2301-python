@@ -84,6 +84,34 @@ class SMSDeleteResponse(TypedDict, total=False):
     sms: SMSDeleteResult
 
 
+class SMSGetByIdMessage(TypedDict, total=False):
+    address: str
+    body: str
+    contact_id: int
+    date: str
+    id: int
+    location: int
+    protocol: int
+    read: int
+    resp: int
+    status: int
+    type: int
+
+
+class SMSGetByIdResponse(TypedDict, total=False):
+    sms: SMSGetByIdMessage
+
+
+class SMSSaveResult(TypedDict, total=False):
+    resp: int
+    smsSaveSucc: int
+    smsSaveFail: int
+
+
+class SMSSaveResponse(TypedDict, total=False):
+    sms: SMSSaveResult
+
+
 class SMSNamespace:
     """SMS helpers backed by the normalized public NR2301 contracts."""
 
@@ -182,6 +210,88 @@ class SMSNamespace:
             raise ProtocolError("sms/sms.query did not return string ids on success")
 
         return [item.strip() for item in ids.split(",") if item.strip()]
+
+    def get_by_id(
+        self,
+        message_id: int | str,
+        *,
+        timeout: float | None = None,
+    ) -> SMSGetByIdResponse:
+        """Return one SMS by ID using the exact nested request contract.
+
+        Reading an unread inbound message may mark it read on the router. The
+        helper therefore performs no hidden retries or follow-up reads.
+        """
+
+        id_text = _message_id_text(message_id, allow_new=False)
+        response = self._client.call(
+            "sms",
+            "sms.get_by_id",
+            data={"sms": {"id": id_text}},
+            timeout=timeout,
+        )
+        self._extract_sms(response, method_id="sms/sms.get_by_id")
+        return cast(SMSGetByIdResponse, response)
+
+    def save_draft(
+        self,
+        recipient: str,
+        message: str,
+        *,
+        message_id: int | str = -1,
+        timeout: float = 100.0,
+    ) -> SMSSaveResponse:
+        """Create or update a normal-protocol SMS draft.
+
+        The exact live-verified draft contract uses type=2 and protocol=0.
+        `message_id=-1` creates a new draft; an existing non-negative ID
+        updates that draft. Recipient/message values are never included in
+        SDK-generated error metadata.
+        """
+
+        if not isinstance(recipient, str):
+            raise TypeError("recipient must be a str")
+        if not isinstance(message, str):
+            raise TypeError("message must be a str")
+        if timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
+
+        recipient = recipient.strip()
+        if not recipient:
+            raise ValueError("recipient must not be empty")
+        if not message:
+            raise ValueError("message must not be empty")
+
+        id_text = _message_id_text(message_id, allow_new=True)
+        payload = {
+            "sms": {
+                "id": id_text,
+                "gsm7": _is_gsm7(message),
+                "address": recipient.rstrip(",") + ",",
+                "body": _uni_encode(message),
+                "date": _sms_time(encode_plus=False),
+                "type": "2",
+                "protocol": "0",
+            }
+        }
+        response = self._client.call(
+            "sms",
+            "sms.save",
+            data=payload,
+            timeout=timeout,
+        )
+        sms = self._extract_sms(response, method_id="sms/sms.save")
+        if not (
+            _int_equals(sms.get("resp"), 0)
+            and _int_equals(sms.get("smsSaveSucc"), 1)
+            and _int_equals(sms.get("smsSaveFail"), 0)
+        ):
+            raise APIError(
+                "sms/sms.save did not report verified draft-save success",
+                method_id="sms/sms.save",
+                response=_redact_sms_save_response(response),
+            )
+        return cast(SMSSaveResponse, response)
 
     def send(
         self,
@@ -295,8 +405,16 @@ def _uni_encode(text: str) -> str:
     return text.encode("utf-16-be", errors="surrogatepass").hex().upper()
 
 
-def _sms_time(now: dt.datetime | None = None) -> str:
-    """Match the observed frontend GetSmsTime string."""
+def _sms_time(
+    now: dt.datetime | None = None,
+    *,
+    encode_plus: bool = True,
+) -> str:
+    """Match the observed frontend GetSmsTime variants.
+
+    Normal SMS send is live verified with an encoded positive sign (`%2B`),
+    while historical live draft-save evidence captured a literal `+`.
+    """
 
     current = now.astimezone() if now is not None else dt.datetime.now().astimezone()
     offset = current.utcoffset() or dt.timedelta()
@@ -305,11 +423,24 @@ def _sms_time(now: dt.datetime | None = None) -> str:
         off = str(abs(int(round(hours))))
     else:
         off = str(abs(hours)).rstrip("0").rstrip(".")
-    timezone = ("%2B" if hours >= 0 else "-") + off
+    positive = "%2B" if encode_plus else "+"
+    timezone = (positive if hours >= 0 else "-") + off
     return (
         f"{current.year % 100},{current.month},{current.day},"
         f"{current.hour},{current.minute},{current.second},{timezone}"
     )
+
+
+def _message_id_text(message_id: int | str, *, allow_new: bool) -> str:
+    if isinstance(message_id, bool) or not isinstance(message_id, (int, str)):
+        raise TypeError("message_id must be an int or numeric str")
+    id_text = str(message_id).strip()
+    if allow_new and id_text == "-1":
+        return id_text
+    if not id_text.isdigit():
+        expectation = "-1 or a non-negative integer" if allow_new else "a non-negative integer"
+        raise ValueError(f"message_id must be {expectation}")
+    return id_text
 
 
 def _int_equals(value: Any, expected: int) -> bool:
@@ -319,6 +450,21 @@ def _int_equals(value: Any, expected: int) -> bool:
         return int(value) == expected
     except (TypeError, ValueError):
         return False
+
+
+def _redact_sms_save_response(response: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep only non-content draft-save status fields in error details."""
+
+    sms = response.get("sms")
+    if not isinstance(sms, Mapping):
+        return {"sms": "invalid response object"}
+    return {
+        "sms": {
+            key: sms.get(key)
+            for key in ("resp", "smsSaveSucc", "smsSaveFail")
+            if key in sms
+        }
+    }
 
 
 def _redact_sms_response(response: Mapping[str, Any]) -> dict[str, Any]:
