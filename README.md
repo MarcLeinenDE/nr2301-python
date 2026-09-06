@@ -371,3 +371,10 @@ Do not publish router passwords, Wi-Fi keys, VPN credentials, configuration back
 Software in this repository is licensed under **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).
 
 Copyright © 2026 Marc Leinen.
+
+---
+
+### ☕ Like this project?
+
+If this work saved you some time or a few developer nerves, you can [buy me a coffee via PayPal](https://www.paypal.me/ccaa/). ☕😄  
+No obligation — a ⭐, useful issue, or contribution is equally appreciated. See [SUPPORT.md](SUPPORT.md) for details.
