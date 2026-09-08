@@ -1,6 +1,6 @@
 import pytest
 
-from nr2301 import APIError, NR2301Client
+from nr2301 import APIError, NR2301Client, ProtocolError
 
 from conftest import FakeResponse, FakeSession
 
@@ -51,6 +51,47 @@ def test_network_select_mode_uses_live_verified_util_wan_getter():
     assert kwargs["params"]["path"] == "util_wan"
     assert kwargs["params"]["method"] == "get_network_select_mode"
     assert "json" not in kwargs
+
+
+@pytest.mark.parametrize(
+    ("helper_name", "api_method"),
+    [
+        ("carrier_aggregation_info", "get_ca_info"),
+        ("radio_metrics", "query_eng_info"),
+    ],
+)
+def test_radio_diagnostics_use_required_one_member_multicall(helper_name, api_method):
+    member = {"synthetic": "preserve-me"}
+    client, session = authenticated_client({"responses": [member]})
+
+    helper = getattr(client.mobile, helper_name)
+    assert helper() == member
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"] == {"multicalls": 1}
+    assert kwargs["json"] == {
+        "requests": [{"path": "cm", "method": api_method}]
+    }
+    assert "data" not in kwargs["json"]["requests"][0]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {},
+        {"responses": []},
+        {"responses": [{"first": True}, {"second": True}]},
+        {"responses": ["not-an-object"]},
+    ],
+)
+def test_radio_diagnostics_reject_malformed_multicall_envelopes(payload):
+    client, _ = authenticated_client(payload)
+
+    with pytest.raises(ProtocolError):
+        client.mobile.radio_metrics()
 
 
 def test_set_network_mode_validates_runtime_mode_and_verifies_readback():
