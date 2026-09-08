@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..client import NR2301Client
 
 
-_TIME_RE = re.compile(r"^(?:[0-9]|1[0-9]|2[0-3]):(?:[0-9]|[0-5][0-9])$")
+_TIME_RE = re.compile(r"^([0-9]{1,2}):([0-9]{1,2})$")
 
 
 class TimedRebootSettings(TypedDict, total=False):
@@ -98,13 +98,21 @@ class MaintenanceNamespace:
 
     @staticmethod
     def _canonical_time(value: str) -> str:
-        if not isinstance(value, str) or _TIME_RE.fullmatch(value) is None:
+        if not isinstance(value, str):
             raise ValueError(
                 "time must use a valid 24-hour H:M/HH:MM representation"
             )
-        hour_text, minute_text = value.split(":", 1)
-        hour = int(hour_text)
-        minute = int(minute_text)
+        match = _TIME_RE.fullmatch(value)
+        if match is None:
+            raise ValueError(
+                "time must use a valid 24-hour H:M/HH:MM representation"
+            )
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            raise ValueError(
+                "time must use a valid 24-hour H:M/HH:MM representation"
+            )
         return f"{hour:02d}:{minute:02d}"
 
     @classmethod
