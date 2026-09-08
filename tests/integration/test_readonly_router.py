@@ -97,3 +97,16 @@ def test_statistics_reads(router):
     _assert_mapping(router.statistics.traffic())
     _assert_mapping(router.statistics.traffic_transport_status())
     _assert_mapping(router.statistics.filter_mode())
+
+
+def test_package_reads(router):
+    # Package quota/usage values are private operational data. Validate only
+    # the documented shape/types and do not print the concrete values.
+    settings = router.package.settings()
+    status = router.package.status()
+
+    _assert_mapping(settings)
+    _assert_mapping(status)
+    assert isinstance(settings.get("package_type"), str)
+    assert isinstance(settings.get("data_used"), int)
+    assert isinstance(status.get("status"), int)
