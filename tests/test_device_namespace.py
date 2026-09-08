@@ -27,6 +27,7 @@ def authenticated_client(*payloads):
         ("features", "router", "get_feature_list"),
         ("mac_info", "router", "get_mac_info"),
         ("ui_language", "router", "get_ui_language"),
+        ("work_mode", "router", "router_get_work_mode"),
         ("battery", "aoc", "get_bat_info"),
         ("sleep_wait_time", "aoc", "sleep_wait_time"),
     ],
@@ -61,6 +62,13 @@ def test_device_internet_preserves_documented_raw_access_value():
     client, _ = authenticated_client({"access": 1})
 
     assert client.device.internet()["access"] == 1
+
+
+def test_work_mode_preserves_unknown_raw_mode_without_coercion():
+    payload = {"mode": "future-mode", "result": 0}
+    client, _ = authenticated_client(payload)
+
+    assert client.device.work_mode() == payload
 
 
 def test_set_ui_language_uses_runtime_list_writes_exact_field_and_verifies_readback():
