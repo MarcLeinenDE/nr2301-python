@@ -7,6 +7,7 @@
 - added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors
 ### Added
 
+- added read-only `client.package.settings()` and `client.package.status()` wrappers for the live-verified `package/get_package_settings` and `package/get_package_status` contracts; raw values/nesting are preserved without inventing units or quota semantics
 - added `client.device.set_sleep_wait_time()` for the live-verified `aoc/set_sleep_wait_time` contract; accepts only 0/10/20/30/40/60 minutes, avoids same-state writes, sends only the documented `time` field and requires exact getter read-back
 - added `client.sim.provide_pin()`, `enable_pin()`, `disable_pin()`, `change_pin()` and `reset_pin_using_puk()` using the exact normalized frontend payloads; helpers never log secrets and apply a default retry-budget guard that preserves the final PIN/PUK attempt while remaining explicitly overridable for deliberate recovery use
 - added explicit `client.wifi.call_wps_pbc()`, `call_wps_pin()` and `call_wps_cancel()` wrappers for the already live-verified WPS action contracts, plus a reversible physical integration test that immediately cancels PBC/PIN and restores the original WPS-enable state
@@ -50,6 +51,7 @@
 
 ### Physical validation
 
+- package read namespace physically validated on ACIY.3 on 2026-09-08: targeted read-only smoke exercised both `package/get_package_settings` and `package/get_package_status` through `client.package` and passed `1/1` in 0.48 s, with the test checking response shape/types while deliberately not printing real usage/quota values
 - auto-sleep timeout setter physically validated on ACIY.3 on 2026-09-08: the dedicated reversible test selected an alternate verified timeout, required exact `sleep_wait_time` read-back, restored the original timeout in `finally`, and passed in 0.87 s; the corresponding device namespace offline suite passed 20/20 on Python 3.13.5
 - public-SDK SMS E2E completed on 2026-08-31: `send()` returned `resp=0/smsSendSucc=1/smsSendFail=0`, physical handset receipt was confirmed, the real handset reply appeared as a new Inbox item, and `get_by_id()` returned fields `address,body,contact_id,date,id,location,protocol,read,resp,status,type`; Inbox/Outbox bodies were decodable as UTF-16BE hex and all phone numbers/message contents were excluded from logs
 - SIM `provide_pin` lifecycle test passed on 2026-08-31 in 76.02 s: after enabling PIN protection, a real reboot outage was confirmed, administrator login recovered on attempt 27, the SIM stabilized at `pin_status=2`, one known-correct local PIN returned `response.setting_response=OK`, read-back returned to `pin_status=5`, retry counters remained 3/10, and PIN protection was restored to disabled
