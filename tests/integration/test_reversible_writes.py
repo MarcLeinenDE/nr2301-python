@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 
 import pytest
@@ -61,6 +62,19 @@ def _sleep_wait_minutes(router: NR2301Client) -> int:
     assert isinstance(value, int) and not isinstance(value, bool)
     assert value in {0, 10, 20, 30, 40, 60}
     return value
+
+
+def _timed_reboot_settings(router: NR2301Client) -> dict[str, object]:
+    response = router.maintenance.timed_reboot()
+    enable = response.get("enable")
+    time = response.get("time")
+    repeat = response.get("repeat")
+
+    assert enable in {0, 1}
+    assert isinstance(time, str) and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time)
+    assert isinstance(repeat, int) and not isinstance(repeat, bool)
+    assert 0 <= repeat <= 255
+    return {"enable": enable, "time": time, "repeat": repeat}
 
 
 def test_data_roaming_toggle_and_restore(router: NR2301Client):
@@ -151,3 +165,38 @@ def test_sleep_wait_time_change_and_restore(router: NR2301Client):
         router.device.set_sleep_wait_time(original)
 
     assert _sleep_wait_minutes(router) == original
+
+
+def test_timed_reboot_disabled_probe_and_restore(router: NR2301Client):
+    original = _timed_reboot_settings(router)
+    original_enable = original["enable"]
+    original_time = original["time"]
+    original_repeat = original["repeat"]
+
+    assert isinstance(original_enable, int)
+    assert isinstance(original_time, str)
+    assert isinstance(original_repeat, int)
+
+    target_time = "23:58" if original_time != "23:58" else "23:57"
+    target_repeat = original_repeat ^ 0x01
+
+    try:
+        # The probe schedule is deliberately disabled, so this test can verify
+        # write/read-back semantics without creating an active reboot trigger.
+        changed = router.maintenance.set_timed_reboot(False, target_time, target_repeat)
+        assert changed.get("enable") == 0
+        assert changed.get("time") == target_time
+        assert changed.get("repeat") == target_repeat
+        assert _timed_reboot_settings(router) == {
+            "enable": 0,
+            "time": target_time,
+            "repeat": target_repeat,
+        }
+    finally:
+        router.maintenance.set_timed_reboot(
+            original_enable == 1,
+            original_time,
+            original_repeat,
+        )
+
+    assert _timed_reboot_settings(router) == original
