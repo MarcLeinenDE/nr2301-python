@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from ..exceptions import APIError, ProtocolError
+
 if TYPE_CHECKING:
     from ..client import NR2301Client
+
+
+_SLEEP_WAIT_MINUTES = (0, 10, 20, 30, 40, 60)
 
 
 class DeviceInfo(TypedDict, total=False):
@@ -178,3 +183,53 @@ class DeviceNamespace:
             SleepWaitTime,
             self._client.call("aoc", "sleep_wait_time", timeout=timeout),
         )
+
+    def set_sleep_wait_time(
+        self,
+        minutes: int,
+        *,
+        timeout: float | None = None,
+    ) -> SleepWaitTime:
+        """Set auto-sleep to a frontend-verified minute value and verify read-back.
+
+        Supported values are 0 (off), 10, 20, 30, 40 and 60 minutes. A
+        same-state call avoids an unnecessary write. The setter uses only the
+        documented `time` field and accepts success only after the getter
+        reports the requested value exactly.
+        """
+
+        if isinstance(minutes, bool) or not isinstance(minutes, int):
+            raise TypeError("minutes must be an int")
+        if minutes not in _SLEEP_WAIT_MINUTES:
+            raise ValueError(
+                "minutes must be one of 0, 10, 20, 30, 40 or 60"
+            )
+
+        current = self.sleep_wait_time(timeout=timeout)
+        current_minutes = self._sleep_wait_minutes(current)
+        if current_minutes == minutes:
+            return current
+
+        self._client.call(
+            "aoc",
+            "set_sleep_wait_time",
+            data={"time": minutes},
+            timeout=timeout,
+        )
+
+        verified = self.sleep_wait_time(timeout=timeout)
+        actual = self._sleep_wait_minutes(verified)
+        if actual != minutes:
+            raise APIError(
+                "aoc/set_sleep_wait_time could not be verified by exact read-back",
+                method_id="aoc/set_sleep_wait_time",
+                response={"expected": minutes, "actual": actual},
+            )
+        return verified
+
+    @staticmethod
+    def _sleep_wait_minutes(response: SleepWaitTime) -> int:
+        value: Any = response.get("result")
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError("aoc/sleep_wait_time did not return an integer result")
+        return value
