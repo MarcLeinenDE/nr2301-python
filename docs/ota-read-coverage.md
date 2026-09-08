@@ -25,7 +25,7 @@ Therefore the physical smoke does not start a firmware check, download, install,
 
 ## Physical evidence — 2026-09-08
 
-Test target: Zyxel NR2301, tested firmware family ACIY.3.
+Test target: Zyxel NR2301, tested firmware family ACIY.3, Python 3.13.5.
 
 Targeted command selected only `test_ota_reads` from the read-only integration suite.
 
