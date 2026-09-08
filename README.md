@@ -25,6 +25,7 @@ Implemented so far:
 - safe traffic/client-statistics reads
 - read-only package usage/quota settings and package-status reads
 - typed mobile-network reads plus verified network-mode/data-roaming writes
+- read-only VPN connection-status reads without credential-bearing profile access
 - LAN/DHCP/DNS reads plus verified DNS writes
 - typed Wi-Fi/WPS/extender reads
 - Wi-Fi AP-section writes, WPS enable/disable, combined ↔ separate SSID mode switching and Guest enable/disable with recovery/read-back
@@ -71,6 +72,7 @@ with NR2301Client(
     print(router.maintenance.timed_reboot())
     print(router.sim.summary())
     print(router.mobile.cell_info())
+    print(router.vpn.status())
     print(router.lan.dns())
     print(router.wifi.basic_info())
     print(router.sms.brief_info())
@@ -248,6 +250,16 @@ router.mobile.set_data_roaming(False)
 ```
 
 The public API contract does not fully reconstruct APN/profile writes through `cm/set_network_settings`, so this SDK does not invent them.
+
+## VPN status
+
+Read only the current VPN client connection status:
+
+```python
+status = router.vpn.status()
+```
+
+This helper calls only `cm/get_vpn_client_connect_status` and preserves the raw `result` and `vpn_status` values. The SDK deliberately does not pull `cm/get_vpn_clients` into this routine surface because that response may contain VPN profile passwords or PSKs.
 
 ## LAN / DHCP / DNS
 

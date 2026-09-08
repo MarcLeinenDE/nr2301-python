@@ -7,6 +7,7 @@
 - added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors
 ### Added
 
+- added read-only `client.vpn.status()` for the upstream live-verified normal-admin `cm/get_vpn_client_connect_status` contract; the raw `result`/`vpn_status` response is preserved without semantic remapping, while credential-bearing VPN profile reads and all VPN mutations remain outside this initial namespace
 - added read-only `client.lan.static_reservations()` for the upstream live-verified normal-admin `router/router_get_dhcp_static_ip` contract; the complete firmware JSON response is preserved raw because the public API does not freeze a stable nested reservation schema, and the disruptive reservation setter remains outside this block
 - added read-only `client.device.work_mode()` for the upstream live-verified normal-admin `router/router_get_work_mode` contract; source-known normal values are `router` and `bridge`, while the SDK preserves raw `mode`/`result` values and deliberately does not expose the disruptive work-mode setter in this block
 - added read-only `client.mobile.network_select_mode()` for the upstream live-verified normal-admin `util_wan/get_network_select_mode` contract; the raw `nw_sel_mode`/`result` response is preserved without semantic aliases, and operator scan/manual selection remain intentionally outside this helper
@@ -57,6 +58,7 @@
 
 ### Physical validation
 
+- VPN connection-status read physically validated on ACIY.3 on 2026-09-08: targeted `test_vpn_status_read` exercised only `cm/get_vpn_client_connect_status` through `client.vpn.status()` and passed `1/1` in 0.44 s; no VPN profile or credential-bearing response was requested and no VPN connection/configuration state was changed
 - DHCP static-reservation read physically validated on ACIY.3 on 2026-09-08: targeted `test_lan_dns_reads` exercised the existing LAN/DNS reads plus `router/router_get_dhcp_static_ip` through `client.lan.static_reservations()` and passed `1/1` in 0.92 s; no DHCP/LAN write occurred and no concrete reservation IP/MAC values were printed
 - router work-mode read physically validated on ACIY.3 on 2026-09-08: targeted `test_device_health_reads` exercised the existing safe device-health reads plus `router/router_get_work_mode` through `client.device.work_mode()` and passed `1/1` in 3.43 s; no work-mode write, bridge transition, reboot or connectivity mutation occurred
 - WAN network selection mode read physically validated on ACIY.3 on 2026-09-08: targeted `test_mobile_status_reads` exercised the existing mobile read group plus `util_wan/get_network_select_mode` through `client.mobile.network_select_mode()` and passed `1/1` in 0.61 s; no operator scan, network-selection write or connectivity transition occurred
