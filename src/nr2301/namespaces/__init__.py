@@ -51,6 +51,7 @@ from .mobile import (
     SignalInfo,
     WANContext,
 )
+from .ota import OTANamespace, OTAQueryState, OTAUpdatedStatus
 from .package import (
     PackageDataMonthly,
     PackageDataPeriod,
@@ -160,6 +161,9 @@ __all__ = [
     "MobileNamespace",
     "NetworkSettings",
     "NetworkSettingsResponse",
+    "OTANamespace",
+    "OTAQueryState",
+    "OTAUpdatedStatus",
     "PackageDataMonthly",
     "PackageDataPeriod",
     "PackageDataValue",

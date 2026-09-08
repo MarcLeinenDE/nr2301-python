@@ -23,6 +23,7 @@ from .namespaces import (
     VersionNamespace,
     WiFiNamespace,
 )
+from .namespaces.ota import OTANamespace
 from .namespaces.package import PackageNamespace
 from .transport import HTTPTransport
 
@@ -58,6 +59,7 @@ class NR2301Client:
         self.statistics = StatisticsNamespace(self)
         self.phonebook = PhonebookNamespace(self)
         self.package = PackageNamespace(self)
+        self.ota = OTANamespace(self)
 
     @property
     def authenticated(self) -> bool:

@@ -320,3 +320,19 @@ The Draft list and Draft `get_by_id` responses returned bare addresses (without 
 
 The SDK keeps the `message_id` parameter because it is part of the source-backed capability contract, but callers must not assume that an existing ID means in-place update on every firmware.
 
+## Completed physical OTA read-only coverage — 2026-09-08
+
+The targeted read-only OTA smoke selected only `test_ota_reads` and passed on ACIY.3 using Python 3.13.5:
+
+```text
+1 passed, 10 deselected in 0.47s
+```
+
+The test exercised exactly:
+
+- `client.ota.updated_status()` → body-less `ota/get_updated_status` GET
+- `client.ota.query_state()` → `ota/new_query` POST with exactly `{"type": 1}`
+
+It did **not** call `manual_check_update`, `download_update`, `clear_failed_state`, `abandon_checked` or `abandon_download_update`; no firmware check, download, install, failed-state clear or cancellation action was started.
+
+The SDK preserves raw OTA state strings. In particular, `response="idle"` remains context-dependent and is not normalized to “firmware current”. See [`ota-read-coverage.md`](ota-read-coverage.md) for the focused evidence note.

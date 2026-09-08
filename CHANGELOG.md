@@ -7,6 +7,7 @@
 - added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors
 ### Added
 
+- added read-only `client.ota.updated_status()` and `client.ota.query_state()` wrappers for the upstream live-verified OTA status/state contracts; `query_state()` sends exactly `{"type": 1}`, preserves raw state strings, and does not reinterpret `idle` as proof that firmware is current
 - added `client.device.set_ui_language()` for the live-verified `router/set_ui_language` contract; requested lowercase transport codes are validated against the target router's runtime `router/get_device_info.lang_list`, same-state writes are avoided, only `language` is sent, and success requires exact `router/get_ui_language` read-back
 - added `client.maintenance.timed_reboot()` and `client.maintenance.set_timed_reboot()` for the live-verified scheduled-reboot contracts; raw getter times are preserved, writes are canonicalized to zero-padded `HH:MM`, repeat is validated as the documented 8-bit mask, same-state writes are avoided across padding differences, and changes require semantic read-back
 - added read-only `client.package.settings()` and `client.package.status()` wrappers for the live-verified `package/get_package_settings` and `package/get_package_status` contracts; raw values/nesting are preserved without inventing units or quota semantics
@@ -53,6 +54,7 @@
 
 ### Physical validation
 
+- OTA read-only namespace physically validated on ACIY.3 on 2026-09-08: targeted `test_ota_reads` exercised `ota/get_updated_status` and `ota/new_query` with exactly `{"type": 1}` through `client.ota` and passed `1/1` in 0.47 s; no manual update check, download, install, state clear or cancellation action was invoked
 - UI-language setter physically validated on ACIY.3 on 2026-09-08: the runtime `lang_list` was `en,dk,fr,fi,pt,it,se,de`, the current language was `en`, and the targeted reversible test changed `en -> de`, required exact `get_ui_language` read-back, restored `de -> en` in `finally`, and passed `1/1` in 1.33 s; no device/SIM identifiers were printed
 - timed reboot schedule helper physically validated on ACIY.3 on 2026-09-08: the initial getter exposed raw `time="0:0"`, the first strict-padding test correctly failed before any write, the SDK was corrected to compare parsed time semantics, and the final disabled-probe lifecycle passed `1/1` in 1.21 s with changed-state read-back plus original `enable/time/repeat` restoration; the temporary probe remained `enable=0` throughout so it could not trigger a reboot
 - package read namespace physically validated on ACIY.3 on 2026-09-08: targeted read-only smoke exercised both `package/get_package_settings` and `package/get_package_status` through `client.package` and passed `1/1` in 0.48 s, with the test checking response shape/types while deliberately not printing real usage/quota values

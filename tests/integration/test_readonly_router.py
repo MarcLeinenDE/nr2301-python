@@ -96,6 +96,19 @@ def test_firewall_reads(router):
     _assert_mapping(router.firewall.upnp_state())
 
 
+def test_ota_reads(router):
+    # Read current OTA state only. Do not call manual_check_update,
+    # download_update, abandon/clear actions or any install path.
+    updated_status = router.ota.updated_status()
+    query_state = router.ota.query_state()
+
+    _assert_mapping(updated_status)
+    _assert_mapping(query_state)
+    assert isinstance(updated_status.get("fota_auto_upgrade_status"), str)
+    assert isinstance(updated_status.get("result"), str)
+    assert isinstance(query_state.get("response"), str)
+
+
 def test_wifi_status_reads(router):
     # Avoid wifi.config(): it includes SSIDs and Wi-Fi keys. The smoke suite
     # needs only non-secret status surfaces.
