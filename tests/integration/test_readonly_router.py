@@ -76,6 +76,12 @@ def test_mobile_status_reads(router):
     _assert_mapping(router.mobile.network_settings())
 
 
+def test_vpn_status_read(router):
+    # Status only. Do not call get_vpn_clients(): profile reads may contain
+    # VPN passwords/PSKs and are intentionally excluded from the smoke suite.
+    _assert_mapping(router.vpn.status())
+
+
 def test_lan_dns_reads(router):
     _assert_mapping(router.lan.address())
     _assert_mapping(router.lan.dns())
