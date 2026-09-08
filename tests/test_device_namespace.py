@@ -1,6 +1,6 @@
 import pytest
 
-from nr2301 import NR2301Client
+from nr2301 import APIError, NR2301Client
 
 from conftest import FakeResponse, FakeSession
 
@@ -61,3 +61,64 @@ def test_device_internet_preserves_documented_raw_access_value():
     client, _ = authenticated_client({"access": 1})
 
     assert client.device.internet()["access"] == 1
+
+
+def test_set_sleep_wait_time_writes_documented_field_and_verifies_readback():
+    client, session = authenticated_client(
+        {"result": 30},
+        {"result": 0},
+        {"result": 20},
+    )
+
+    result = client.device.set_sleep_wait_time(20)
+
+    assert result == {"result": 20}
+    assert [call[0] for call in session.calls] == ["GET", "POST", "GET"]
+    _, _, write_kwargs = session.calls[1]
+    assert write_kwargs["params"]["path"] == "aoc"
+    assert write_kwargs["params"]["method"] == "set_sleep_wait_time"
+    assert write_kwargs["json"] == {"time": 20}
+
+
+def test_set_sleep_wait_time_same_state_avoids_write():
+    client, session = authenticated_client({"result": 30})
+
+    result = client.device.set_sleep_wait_time(30)
+
+    assert result == {"result": 30}
+    assert [call[0] for call in session.calls] == ["GET"]
+
+
+@pytest.mark.parametrize("invalid", [-1, 1, 15, 50, 61])
+def test_set_sleep_wait_time_rejects_unverified_values(invalid):
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="0, 10, 20, 30, 40 or 60"):
+        client.device.set_sleep_wait_time(invalid)
+
+    assert session.calls == []
+
+
+def test_set_sleep_wait_time_rejects_bool_and_non_int():
+    client, session = authenticated_client()
+
+    with pytest.raises(TypeError, match="minutes must be an int"):
+        client.device.set_sleep_wait_time(True)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="minutes must be an int"):
+        client.device.set_sleep_wait_time("30")  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
+def test_set_sleep_wait_time_raises_when_readback_does_not_match():
+    client, _ = authenticated_client(
+        {"result": 30},
+        {"result": 0},
+        {"result": 30},
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.device.set_sleep_wait_time(20)
+
+    assert exc_info.value.method_id == "aoc/set_sleep_wait_time"
+    assert exc_info.value.response == {"expected": 20, "actual": 30}

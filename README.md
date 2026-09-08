@@ -19,14 +19,14 @@ Implemented so far:
 - explicit transport/protocol/authentication/API exceptions
 - context-manager support
 - typed read-only `version` helpers
-- safe device/router health, battery, feature and identity reads
-- safe SIM status plus documented raw-value summary labels
+- safe device/router health, battery, feature and identity reads plus verified auto-sleep timeout writes
+- safe SIM status plus documented raw-value summary labels and physically verified PIN lifecycle helpers
 - safe traffic/client-statistics reads
 - typed mobile-network reads plus verified network-mode/data-roaming writes
 - LAN/DHCP/DNS reads plus verified DNS writes
 - typed Wi-Fi/WPS/extender reads
 - Wi-Fi AP-section writes, WPS enable/disable, combined ↔ separate SSID mode switching and Guest enable/disable with recovery/read-back
-- SMS mailbox summary/list/query plus verified normal-SMS send and single-ID delete
+- SMS mailbox summary/list/query plus verified normal-SMS send, draft save/get-by-ID and single-ID delete
 - offline unit tests
 - explicitly opt-in, read-only physical-router smoke tests
 - GitHub Actions test matrix for Python 3.10–3.13
@@ -101,6 +101,14 @@ print(router.device.sleep_wait_time())
 print(router.device.ui_language())
 ```
 
+The live-verified auto-sleep timeout can be changed with the same namespace:
+
+```python
+router.device.set_sleep_wait_time(30)
+```
+
+Accepted values are exactly `0` (off), `10`, `20`, `30`, `40` and `60` minutes. The helper avoids an unnecessary same-state write, sends only the documented `time` field and accepts the change only after `aoc/sleep_wait_time` reports the requested value exactly.
+
 Additional identity surfaces are available when an application deliberately needs them:
 
 ```python
@@ -115,7 +123,7 @@ macs = router.device.mac_info()
 
 ## SIM status
 
-The safe SIM API is read-only:
+Read raw/normalized SIM state:
 
 ```python
 raw = router.sim.status()
@@ -131,9 +139,9 @@ print(summary)
 
 Unknown numeric values are preserved and displayed as `Unknown (<raw>)`; they are not coerced into a guessed state.
 
-PIN/PUK writes are not exposed **yet** because their complete live contracts still need deliberate physical verification. They remain SDK coverage targets; retry-consuming tests require an explicit scenario and recovery plan rather than broad probing.
+The SDK also exposes the physically verified normal PIN lifecycle helpers `provide_pin()`, `enable_pin()`, `disable_pin()` and `change_pin()`. They apply retry-budget guards and do not include PIN/PUK values in SDK-generated diagnostics. `reset_pin_using_puk()` exists for recovery use but remains intentionally unexercised merely for coverage; the test campaign does not manufacture a blocked SIM by exhausting retries.
 
-`sim/get_lock_info` is also not wrapped as a high-level helper because the tested firmware returned HTTP 200/application-json with a zero-length body rather than a stable JSON contract.
+`sim/get_lock_info` is not wrapped as a high-level helper because the tested firmware returned HTTP 200/application-json with a zero-length body rather than a stable JSON contract.
 
 ## Statistics / client state
 
@@ -307,6 +315,15 @@ result = router.sms.send("+15551234567", "Hello")
 - uses the live-verified normal-SMS `protocol="0"` flow;
 - requires `resp=0`, `smsSendSucc=1`, `smsSendFail=0` rather than trusting HTTP 200.
 
+Draft helpers use the same normalized SMS evidence:
+
+```python
+draft = router.sms.save_draft("+15551234567", "Draft text")
+detail = router.sms.get_by_id("42")
+```
+
+On tested firmware ACIY.3, saving with `message_id=<existing Draft ID>` is physically `COPY_ON_SAVE`: the original Draft remains unchanged and exactly one new Draft ID contains the replacement body. Callers must therefore not assume that an existing ID means in-place mutation on every firmware.
+
 Delete one message using either an integer ID or a numeric string returned by `query_ids()`:
 
 ```python
@@ -317,8 +334,6 @@ router.sms.delete("42")
 Deletion requires the live-verified `resp=0`, `smsDelSucc=1`, `smsDelFail=0` success triple.
 
 SMS bodies and phone numbers are personal data. The SDK does not add them to its own error details, and real SMS content/numbers should never be placed in public logs, fixtures or issue reports.
-
-Draft-save and get-by-ID convenience helpers remain deferred until those complete request objects are normalized as stable public contracts.
 
 ## Physical-router integration tests
 

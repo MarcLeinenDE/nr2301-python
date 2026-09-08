@@ -88,7 +88,8 @@ The first Level-2 suite is `tests/integration/test_reversible_writes.py` and cov
 - mobile-data roaming toggle + restore;
 - mobile network-mode change + restore when the router reports an alternative mode;
 - WPS toggle + restore;
-- Wi-Fi Guest and combined/separate state transitions + restore.
+- Wi-Fi Guest and combined/separate state transitions + restore;
+- auto-sleep timeout change + exact read-back + restore.
 
 Each test uses `try/finally` so restoration is attempted even when an intermediate assertion or write verification fails. The Wi-Fi test deliberately uses the USB management path so Wi-Fi mode changes do not remove the test PC's management connection.
 
@@ -230,6 +231,19 @@ The goal is complete protocol evidence, not publication of the maintainer's real
 ## CI behavior
 
 GitHub Actions does not set any `NR2301_*_INTEGRATION` physical-test flag, so physical-router modules are skipped and no network attempt is made toward the default router host.
+
+## Completed physical auto-sleep timeout coverage — 2026-09-08
+
+The dedicated reversible-write test for `client.device.set_sleep_wait_time()` passed on ACIY.3 using Python 3.13.5:
+
+```text
+selected one alternate value from 0/10/20/30/40/60
+set_sleep_wait_time(target)       exact getter read-back matched target
+finally restore original         exact getter read-back matched original
+pytest result                     1 passed, 4 deselected in 0.87 s
+```
+
+The test intentionally does not depend on a particular starting timeout. It snapshots the current value, chooses a different upstream-verified value, verifies the change, restores the original value in `finally`, and verifies the final state again. The corresponding offline device namespace suite passed 20/20.
 
 ## Completed physical Wireless action coverage — 2026-08-31
 
