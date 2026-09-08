@@ -20,6 +20,7 @@ Implemented so far:
 - context-manager support
 - typed read-only `version` helpers
 - safe device/router health, battery, feature and identity reads plus verified auto-sleep timeout writes
+- scheduled router-maintenance reads plus physically verified timed-reboot schedule writes with semantic read-back/restore
 - safe SIM status plus documented raw-value summary labels and physically verified PIN lifecycle helpers
 - safe traffic/client-statistics reads
 - read-only package usage/quota settings and package-status reads
@@ -67,6 +68,7 @@ with NR2301Client(
 
     print(router.version.info())
     print(router.device.runtime())
+    print(router.maintenance.timed_reboot())
     print(router.sim.summary())
     print(router.mobile.cell_info())
     print(router.lan.dns())
@@ -122,6 +124,28 @@ macs = router.device.mac_info()
 > `device.info()` can contain IMEI, IMSI, ICCID and serial number. `device.mac_info()` contains interface MAC addresses. Treat those values as sensitive identifiers and do not include them in public logs, fixtures or issue reports by default.
 
 `device.internet()` preserves the documented raw `access` value (`1` available, `0` unavailable). Diagnostic level values are also returned raw rather than being silently remapped by the base SDK.
+
+## Router maintenance
+
+The `maintenance` namespace currently exposes the live-verified scheduled-reboot contract:
+
+```python
+schedule = router.maintenance.timed_reboot()
+```
+
+The raw firmware response is preserved. On tested firmware `V1.00(ACIY.3)C0`, a physical read returned `time="0:0"`; callers must therefore not assume that getter times are always zero-padded `HH:MM` strings.
+
+Set a schedule with the documented `enable`, `time` and eight-bit `repeat` mask:
+
+```python
+verified = router.maintenance.set_timed_reboot(
+    True,
+    "03:30",
+    62,
+)
+```
+
+`set_timed_reboot()` accepts valid one- or two-digit hour/minute components, canonicalizes writes to zero-padded `HH:MM`, avoids same-state writes even when the getter uses different padding, and verifies the resulting `enable`/time/`repeat` state semantically. The 2026-09-08 physical test used a temporary **disabled** schedule (`enable=0`), confirmed changed-state read-back, and restored the complete original schedule afterward without triggering a reboot.
 
 ## SIM status
 
