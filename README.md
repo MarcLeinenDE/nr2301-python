@@ -25,6 +25,7 @@ Implemented so far:
 - safe traffic/client-statistics reads
 - read-only package usage/quota settings and package-status reads
 - typed mobile-network reads plus verified network-mode/data-roaming writes
+- read-only VPN connection-status reads without credential-bearing profile access
 - LAN/DHCP/DNS reads plus verified DNS writes
 - typed Wi-Fi/WPS/extender reads
 - Wi-Fi AP-section writes, WPS enable/disable, combined ↔ separate SSID mode switching and Guest enable/disable with recovery/read-back
@@ -71,6 +72,7 @@ with NR2301Client(
     print(router.maintenance.timed_reboot())
     print(router.sim.summary())
     print(router.mobile.cell_info())
+    print(router.vpn.status())
     print(router.lan.dns())
     print(router.wifi.basic_info())
     print(router.sms.brief_info())
@@ -249,6 +251,16 @@ router.mobile.set_data_roaming(False)
 
 The public API contract does not fully reconstruct APN/profile writes through `cm/set_network_settings`, so this SDK does not invent them.
 
+## VPN status
+
+Read only the current VPN client connection status:
+
+```python
+status = router.vpn.status()
+```
+
+This helper calls only `cm/get_vpn_client_connect_status` and preserves the raw `result` and `vpn_status` values. The SDK deliberately does not pull `cm/get_vpn_clients` into this routine surface because that response may contain VPN profile passwords or PSKs.
+
 ## LAN / DHCP / DNS
 
 ```python
@@ -417,26 +429,3 @@ The canonical protocol reference is external to this repository:
 - immutable initial API release: `v0.1.0`
 - current API development metadata used by the newest helpers: `0.1.1.dev0`
 - tested firmware baseline: `V1.00(ACIY.3)C0`
-
-The SDK does not maintain an independent hand-edited copy of the 157-method specification. New high-level helpers are promoted only after their contracts are normalized in the API repository.
-
-## Maintainer / support expectations
-
-This project grew out of a personal spare-time reverse-engineering project and is published so other users do not have to repeat the same work. Issues, corrections and pull requests are welcome. There is no commercial support or SLA. I have a young child and limited spare time, so replies and reviews may sometimes take a while.
-
-## Security
-
-Do not publish router passwords, Wi-Fi keys, VPN credentials, configuration backups, SMS contents, subscriber/SIM identifiers or live private network identifiers in issues or test fixtures. See [`SECURITY.md`](SECURITY.md).
-
-## License
-
-Software in this repository is licensed under **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).
-
-Copyright © 2026 Marc Leinen.
-
----
-
-### ☕ Like this project?
-
-If this work saved you some time or a few developer nerves, you can [buy me a coffee via PayPal](https://www.paypal.me/ccaa/). ☕😄  
-No obligation — a ⭐, useful issue, or contribution is equally appreciated. See [SUPPORT.md](SUPPORT.md) for details.
