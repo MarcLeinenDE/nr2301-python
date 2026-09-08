@@ -64,3 +64,41 @@ def test_contacts_by_location_validates_before_network_access():
         client.phonebook.contacts_by_location(0, page_index=-1)
 
     assert session.calls == []
+
+
+def test_contacts_by_group_uses_live_confirmed_string_payload():
+    payload = {"result": 0, "contactcount": 0, "contactlist": []}
+    client, session = authenticated_client(payload)
+
+    assert client.phonebook.contacts_by_group(
+        7,
+        page_capacity=50,
+        page_index=2,
+    ) == payload
+
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["path"] == "phonebook"
+    assert kwargs["params"]["method"] == "getcontactbygroup"
+    assert kwargs["json"] == {
+        "getcontactbygroup": {
+            "group": "7",
+            "pagecap": "50",
+            "pageindex": "2",
+        }
+    }
+
+
+def test_contacts_by_group_validates_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(TypeError, match="group must be an int"):
+        client.phonebook.contacts_by_group(True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="group must be at least zero"):
+        client.phonebook.contacts_by_group(-1)
+    with pytest.raises(ValueError, match="greater than zero"):
+        client.phonebook.contacts_by_group(0, page_capacity=0)
+    with pytest.raises(ValueError, match="at least zero"):
+        client.phonebook.contacts_by_group(0, page_index=-1)
+
+    assert session.calls == []
