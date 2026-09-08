@@ -429,3 +429,26 @@ The canonical protocol reference is external to this repository:
 - immutable initial API release: `v0.1.0`
 - current API development metadata used by the newest helpers: `0.1.1.dev0`
 - tested firmware baseline: `V1.00(ACIY.3)C0`
+
+The SDK does not maintain an independent hand-edited copy of the 157-method specification. New high-level helpers are promoted only after their contracts are normalized in the API repository.
+
+## Maintainer / support expectations
+
+This project grew out of a personal spare-time reverse-engineering project and is published so other users do not have to repeat the same work. Issues, corrections and pull requests are welcome. There is no commercial support or SLA. I have a young child and limited spare time, so replies and reviews may sometimes take a while.
+
+## Security
+
+Do not publish router passwords, Wi-Fi keys, VPN credentials, configuration backups, SMS contents, subscriber/SIM identifiers or live private network identifiers in issues or test fixtures. See [`SECURITY.md`](SECURITY.md).
+
+## License
+
+Software in this repository is licensed under **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).
+
+Copyright © 2026 Marc Leinen.
+
+---
+
+### ☕ Like this project?
+
+If this work saved you some time or a few developer nerves, you can [buy me a coffee via PayPal](https://www.paypal.me/ccaa/). ☕😄  
+No obligation — a ⭐, useful issue, or contribution is equally appreciated. See [SUPPORT.md](SUPPORT.md) for details.
