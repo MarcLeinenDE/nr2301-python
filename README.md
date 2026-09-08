@@ -19,7 +19,7 @@ Implemented so far:
 - explicit transport/protocol/authentication/API exceptions
 - context-manager support
 - typed read-only `version` helpers
-- safe device/router health, battery, feature and identity reads
+- safe device/router health, battery, feature and identity reads plus verified auto-sleep timeout writes
 - safe SIM status plus documented raw-value summary labels
 - safe traffic/client-statistics reads
 - typed mobile-network reads plus verified network-mode/data-roaming writes
@@ -100,6 +100,14 @@ print(router.device.battery())
 print(router.device.sleep_wait_time())
 print(router.device.ui_language())
 ```
+
+The live-verified auto-sleep timeout can be changed with the same namespace:
+
+```python
+router.device.set_sleep_wait_time(30)
+```
+
+Accepted values are exactly `0` (off), `10`, `20`, `30`, `40` and `60` minutes. The helper avoids an unnecessary same-state write, sends only the documented `time` field and accepts the change only after `aoc/sleep_wait_time` reports the requested value exactly.
 
 Additional identity surfaces are available when an application deliberately needs them:
 
