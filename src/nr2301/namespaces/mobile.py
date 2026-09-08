@@ -153,6 +153,24 @@ class MobileNamespace:
             ),
         )
 
+    def carrier_aggregation_info(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Return raw CA diagnostics through the required normal-admin multicall."""
+
+        return self._multicall_read_member("get_ca_info", timeout=timeout)
+
+    def radio_metrics(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Return raw detailed radio metrics through the required multicall."""
+
+        return self._multicall_read_member("query_eng_info", timeout=timeout)
+
     def set_network_mode(
         self,
         mode: str,
@@ -240,6 +258,37 @@ class MobileNamespace:
             verify_delay=verify_delay,
             verify_timeout=verify_timeout,
         )
+
+    def _multicall_read_member(
+        self,
+        method: str,
+        *,
+        timeout: float | None,
+    ) -> dict[str, Any]:
+        """Dispatch one normal-admin read that is authorized only via multicall."""
+
+        payload = self._client.multicall(
+            [{"path": "cm", "method": method}],
+            timeout=timeout,
+        )
+        if not isinstance(payload, Mapping):
+            raise ProtocolError(
+                f"cm/{method} multicall returned {type(payload).__name__}, "
+                "expected an object envelope"
+            )
+
+        responses = payload.get("responses")
+        if not isinstance(responses, list) or len(responses) != 1:
+            raise ProtocolError(
+                f"cm/{method} multicall did not return exactly one response member"
+            )
+
+        member = responses[0]
+        if not isinstance(member, Mapping):
+            raise ProtocolError(
+                f"cm/{method} multicall response member is not a JSON object"
+            )
+        return dict(member)
 
     def _set_string_setting(
         self,
