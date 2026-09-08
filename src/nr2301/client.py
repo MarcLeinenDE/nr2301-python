@@ -13,6 +13,7 @@ from .exceptions import AuthenticationError, ProtocolError
 from .namespaces import (
     DeviceNamespace,
     LANNamespace,
+    MaintenanceNamespace,
     MobileNamespace,
     PhonebookNamespace,
     SIMNamespace,
@@ -46,6 +47,7 @@ class NR2301Client:
         # transport remains available for every documented API method.
         self.version = VersionNamespace(self)
         self.device = DeviceNamespace(self)
+        self.maintenance = MaintenanceNamespace(self)
         self.mobile = MobileNamespace(self)
         self.sim = SIMNamespace(self)
         self.lan = LANNamespace(self)

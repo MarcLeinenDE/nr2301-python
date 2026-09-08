@@ -21,6 +21,7 @@ from .lan import (
     LANAddressResponse,
     LANNamespace,
 )
+from .maintenance import MaintenanceNamespace, TimedRebootSettings
 from .mobile import (
     AvailableNetworkModes,
     CellInfo,
@@ -121,6 +122,7 @@ __all__ = [
     "LoginClientMac",
     "MacInfo",
     "MagicNumberInfo",
+    "MaintenanceNamespace",
     "MobileNamespace",
     "NetworkSettings",
     "NetworkSettingsResponse",
@@ -156,6 +158,7 @@ __all__ = [
     "SignalInfo",
     "SleepWaitTime",
     "StatisticsNamespace",
+    "TimedRebootSettings",
     "TrafficCounters",
     "TrafficCountersResponse",
     "TrafficTransportResponse",
