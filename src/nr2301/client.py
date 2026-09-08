@@ -21,6 +21,7 @@ from .namespaces import (
     VersionNamespace,
     WiFiNamespace,
 )
+from .namespaces.package import PackageNamespace
 from .transport import HTTPTransport
 
 
@@ -52,6 +53,7 @@ class NR2301Client:
         self.sms = SMSNamespace(self)
         self.statistics = StatisticsNamespace(self)
         self.phonebook = PhonebookNamespace(self)
+        self.package = PackageNamespace(self)
 
     @property
     def authenticated(self) -> bool:
