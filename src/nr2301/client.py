@@ -25,6 +25,7 @@ from .namespaces import (
 )
 from .namespaces.ota import OTANamespace
 from .namespaces.package import PackageNamespace
+from .namespaces.vpn import VPNNamespace
 from .transport import HTTPTransport
 
 
@@ -60,6 +61,7 @@ class NR2301Client:
         self.phonebook = PhonebookNamespace(self)
         self.package = PackageNamespace(self)
         self.ota = OTANamespace(self)
+        self.vpn = VPNNamespace(self)
 
     @property
     def authenticated(self) -> bool:
