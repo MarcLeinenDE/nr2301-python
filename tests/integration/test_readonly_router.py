@@ -79,6 +79,23 @@ def test_lan_dns_reads(router):
     _assert_mapping(router.lan.dns())
 
 
+def test_firewall_reads(router):
+    # Firewall/NAT reads can contain private addresses, URL-filter entries or
+    # forwarding rules. Exercise the live-verified read contracts without
+    # printing or asserting the concrete configuration values.
+    _assert_mapping(router.firewall.disable_info())
+    _assert_mapping(router.firewall.dmz_info())
+    _assert_mapping(router.firewall.vpn_passthrough())
+    _assert_mapping(router.firewall.admin_from_wan())
+    _assert_mapping(router.firewall.ping_from_wan())
+    _assert_mapping(router.firewall.port_forward())
+    _assert_mapping(router.firewall.port_trigger())
+    _assert_mapping(router.firewall.url_filter())
+    _assert_mapping(router.firewall.ip_filter_mode_state())
+    _assert_mapping(router.firewall.port_filter_mode_state())
+    _assert_mapping(router.firewall.upnp_state())
+
+
 def test_wifi_status_reads(router):
     # Avoid wifi.config(): it includes SSIDs and Wi-Fi keys. The smoke suite
     # needs only non-secret status surfaces.
