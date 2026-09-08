@@ -24,8 +24,6 @@ Implemented so far:
 - safe SIM status plus documented raw-value summary labels and physically verified PIN lifecycle helpers
 - safe traffic/client-statistics reads
 - read-only package usage/quota settings and package-status reads
-- read-only firewall/NAT state reads
-- read-only OTA status/state reads without starting an update check
 - typed mobile-network reads plus verified network-mode/data-roaming writes
 - LAN/DHCP/DNS reads plus verified DNS writes
 - typed Wi-Fi/WPS/extender reads
@@ -74,8 +72,6 @@ with NR2301Client(
     print(router.sim.summary())
     print(router.mobile.cell_info())
     print(router.lan.dns())
-    print(router.firewall.upnp_state())
-    print(router.ota.query_state())
     print(router.wifi.basic_info())
     print(router.sms.brief_info())
     print(router.statistics.traffic())
@@ -158,19 +154,6 @@ verified = router.maintenance.set_timed_reboot(
 ```
 
 `set_timed_reboot()` accepts valid one- or two-digit hour/minute components, canonicalizes writes to zero-padded `HH:MM`, avoids same-state writes even when the getter uses different padding, and verifies the resulting `enable`/time/`repeat` state semantically. The 2026-09-08 physical test used a temporary **disabled** schedule (`enable=0`), confirmed changed-state read-back, and restored the complete original schedule afterward without triggering a reboot.
-
-## OTA status
-
-The `ota` namespace intentionally exposes only the two live-verified status/state reads:
-
-```python
-print(router.ota.updated_status())
-print(router.ota.query_state())
-```
-
-`updated_status()` calls body-less `ota/get_updated_status`. `query_state()` calls `ota/new_query` with exactly `{"type": 1}` and preserves the raw `response` string. In particular, `response="idle"` is **not** relabeled as proof that the firmware is current; upstream evidence treats idle as context-dependent.
-
-This read-only namespace does not call `manual_check_update`, `download_update`, `clear_failed_state`, `abandon_checked` or `abandon_download_update`. The 2026-09-08 targeted physical smoke exercised only the two status helpers and passed `1/1` in 0.47 s without starting a firmware check, download or install. See [`docs/ota-read-coverage.md`](docs/ota-read-coverage.md).
 
 ## SIM status
 
@@ -411,4 +394,49 @@ and supplies the password through `NR2301_PASSWORD`.
 
 Physical tests are split into explicit risk tiers: read-only, reversible-write and destructive/recovery. Ordinary CI enables none of them. The dedicated test router is used to expand coverage while sensitive output is sanitized and USB-management-mode mutation remains temporarily excluded as the active recovery channel.
 
-See [`docs/integration-testing.md`](docs/integration-testing.md) for PowerShell examples and the risk-tier rules.
+See [`docs/integration-testing.md`](docs/integration-testing.md) for PowerShell, cmd.exe and Linux/macOS examples and the exact safety model.
+
+## Design rules
+
+The SDK follows the public API evidence instead of normalizing behavior that has not been proven:
+
+- HTTP 200 is not treated as proof that a router operation succeeded.
+- Numeric values are **not** globally converted to strings even though the stock frontend often does so. Per-method evidence wins; SMS send/delete emit their specifically verified stringified wire fields locally.
+- Unknown response fields and unknown documented raw values are preserved.
+- The base client does not invent undocumented success/error codes.
+- High-level write helpers verify resulting state or endpoint-specific semantic success.
+- Disruptive high-level helpers use read-back/recovery patterns where API research showed they are necessary.
+- Engineering/supervisor credentials are not part of this SDK.
+- Physical-router tests require explicit opt-in; normal CI must never contact a router.
+
+## API baseline
+
+The canonical protocol reference is external to this repository:
+
+- API repository: <https://github.com/MarcLeinenDE/nr2301-api>
+- immutable initial API release: `v0.1.0`
+- current API development metadata used by the newest helpers: `0.1.1.dev0`
+- tested firmware baseline: `V1.00(ACIY.3)C0`
+
+The SDK does not maintain an independent hand-edited copy of the 157-method specification. New high-level helpers are promoted only after their contracts are normalized in the API repository.
+
+## Maintainer / support expectations
+
+This project grew out of a personal spare-time reverse-engineering project and is published so other users do not have to repeat the same work. Issues, corrections and pull requests are welcome. There is no commercial support or SLA. I have a young child and limited spare time, so replies and reviews may sometimes take a while.
+
+## Security
+
+Do not publish router passwords, Wi-Fi keys, VPN credentials, configuration backups, SMS contents, subscriber/SIM identifiers or live private network identifiers in issues or test fixtures. See [`SECURITY.md`](SECURITY.md).
+
+## License
+
+Software in this repository is licensed under **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).
+
+Copyright © 2026 Marc Leinen.
+
+---
+
+### ☕ Like this project?
+
+If this work saved you some time or a few developer nerves, you can [buy me a coffee via PayPal](https://www.paypal.me/ccaa/). ☕😄  
+No obligation — a ⭐, useful issue, or contribution is equally appreciated. See [SUPPORT.md](SUPPORT.md) for details.
