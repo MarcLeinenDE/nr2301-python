@@ -55,6 +55,14 @@ def _wps_enabled(router: NR2301Client) -> bool:
     return value == "1"
 
 
+def _sleep_wait_minutes(router: NR2301Client) -> int:
+    response = router.device.sleep_wait_time()
+    value = response.get("result")
+    assert isinstance(value, int) and not isinstance(value, bool)
+    assert value in {0, 10, 20, 30, 40, 60}
+    return value
+
+
 def test_data_roaming_toggle_and_restore(router: NR2301Client):
     before = _network_settings(router)
     original = before.get("data_roaming")
@@ -128,3 +136,18 @@ def test_wifi_guest_and_split_state_machine_restores_original(router: NR2301Clie
 
     assert router.wifi.uses_separate_ssids() is original_separate
     assert router.wifi.guest_enabled() is original_guest
+
+
+def test_sleep_wait_time_change_and_restore(router: NR2301Client):
+    original = _sleep_wait_minutes(router)
+    alternatives = [value for value in (0, 10, 20, 30, 40, 60) if value != original]
+    target = alternatives[0]
+
+    try:
+        changed = router.device.set_sleep_wait_time(target)
+        assert changed.get("result") == target
+        assert _sleep_wait_minutes(router) == target
+    finally:
+        router.device.set_sleep_wait_time(original)
+
+    assert _sleep_wait_minutes(router) == original
