@@ -110,6 +110,20 @@ class LANNamespace:
         )
         return cast(DHCPSettings, dict(self._extract_dhcp(response)))
 
+    def static_reservations(self, *, timeout: float | None = None) -> dict[str, Any]:
+        """Return the raw DHCP static-reservation response.
+
+        The upstream API marks `router_get_dhcp_static_ip` as live-verified but
+        does not freeze a stable nested response schema. Preserve the complete
+        firmware JSON object without inventing field names or normalizations.
+        """
+
+        return self._client.call(
+            "router",
+            "router_get_dhcp_static_ip",
+            timeout=timeout,
+        )
+
     def dns(self, *, timeout: float | None = None) -> DNSSettings:
         """Return the five DNS fields from the combined DHCP object."""
 

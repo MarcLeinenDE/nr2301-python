@@ -79,6 +79,9 @@ def test_mobile_status_reads(router):
 def test_lan_dns_reads(router):
     _assert_mapping(router.lan.address())
     _assert_mapping(router.lan.dns())
+    # Static DHCP reservations can contain private IP/MAC identifiers. Exercise
+    # only the read contract and never print or assert concrete reservation data.
+    _assert_mapping(router.lan.static_reservations())
 
 
 def test_firewall_reads(router):

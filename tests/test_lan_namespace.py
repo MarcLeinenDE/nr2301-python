@@ -58,6 +58,25 @@ def test_lan_read_helpers_use_live_verified_get_methods():
     assert session.calls[3][2]["params"]["method"] == "router_get_lan_ip"
 
 
+def test_static_reservations_uses_live_verified_getter_and_preserves_raw_response():
+    payload = {
+        "synthetic_nested_shape": [
+            {"unknown_future_field": "preserve-me"},
+        ],
+        "result": 0,
+    }
+    client, session = authenticated_client([(payload, 200)])
+
+    assert client.lan.static_reservations() == payload
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "router"
+    assert kwargs["params"]["method"] == "router_get_dhcp_static_ip"
+    assert "json" not in kwargs
+
+
 def test_set_dns_preserves_combined_settings_and_verifies_readback():
     before = dhcp_payload()
     after = dhcp_payload(
