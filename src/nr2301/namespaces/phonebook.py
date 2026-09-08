@@ -95,3 +95,49 @@ class PhonebookNamespace:
                 timeout=timeout,
             ),
         )
+
+    def contacts_by_group(
+        self,
+        group: int,
+        *,
+        page_capacity: int = 50,
+        page_index: int = 0,
+        timeout: float | None = None,
+    ) -> PhonebookContactsResponse:
+        """Return one raw contact-group page using the live-confirmed wire shape.
+
+        ACIY.3 accepts ``group``, ``pagecap`` and ``pageindex`` as strings inside
+        the ``getcontactbygroup`` request object. The public Python surface takes
+        integers because group indices and pagination values are numeric concepts,
+        then serializes them exactly as observed on the wire.
+        """
+
+        for name, value in (
+            ("group", group),
+            ("page_capacity", page_capacity),
+            ("page_index", page_index),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{name} must be an int")
+        if group < 0:
+            raise ValueError("group must be at least zero")
+        if page_capacity <= 0:
+            raise ValueError("page_capacity must be greater than zero")
+        if page_index < 0:
+            raise ValueError("page_index must be at least zero")
+
+        return cast(
+            PhonebookContactsResponse,
+            self._client.call(
+                "phonebook",
+                "getcontactbygroup",
+                data={
+                    "getcontactbygroup": {
+                        "group": str(group),
+                        "pagecap": str(page_capacity),
+                        "pageindex": str(page_index),
+                    }
+                },
+                timeout=timeout,
+            ),
+        )
