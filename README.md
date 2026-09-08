@@ -22,6 +22,7 @@ Implemented so far:
 - safe device/router health, battery, feature and identity reads plus verified auto-sleep timeout writes
 - safe SIM status plus documented raw-value summary labels and physically verified PIN lifecycle helpers
 - safe traffic/client-statistics reads
+- read-only package usage/quota settings and package-status reads
 - typed mobile-network reads plus verified network-mode/data-roaming writes
 - LAN/DHCP/DNS reads plus verified DNS writes
 - typed Wi-Fi/WPS/extender reads
@@ -72,6 +73,7 @@ with NR2301Client(
     print(router.wifi.basic_info())
     print(router.sms.brief_info())
     print(router.statistics.traffic())
+    print(router.package.status())
 ```
 
 The generic transport remains available for every documented method:
@@ -142,6 +144,19 @@ Unknown numeric values are preserved and displayed as `Unknown (<raw>)`; they ar
 The SDK also exposes the physically verified normal PIN lifecycle helpers `provide_pin()`, `enable_pin()`, `disable_pin()` and `change_pin()`. They apply retry-budget guards and do not include PIN/PUK values in SDK-generated diagnostics. `reset_pin_using_puk()` exists for recovery use but remains intentionally unexercised merely for coverage; the test campaign does not manufacture a blocked SIM by exhausting retries.
 
 `sim/get_lock_info` is not wrapped as a high-level helper because the tested firmware returned HTTP 200/application-json with a zero-length body rather than a stable JSON contract.
+
+## Package usage / quota state
+
+The `package` namespace exposes the two live-verified read surfaces without inventing units or higher-level quota semantics:
+
+```python
+settings = router.package.settings()
+status = router.package.status()
+```
+
+`settings()` returns the raw package configuration and usage fields from `package/get_package_settings`, including the firmware's nested daily/monthly/multi-month/yearly/unlimited blocks when present. `status()` returns the raw `status` value from `package/get_package_status`. Unknown fields and raw numeric values are preserved rather than normalized by the SDK.
+
+The package setters are intentionally not exposed yet: `package/set_package_settings` still lacks a fully reconstructed request body upstream, and `package/set_package_data_used` has only limited same-state write evidence. Those writes remain API-research targets rather than guessed SDK helpers.
 
 ## Statistics / client state
 
