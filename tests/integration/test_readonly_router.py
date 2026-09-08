@@ -57,6 +57,7 @@ def test_device_health_reads(router):
     _assert_mapping(router.device.diagnostics())
     _assert_mapping(router.device.internet())
     _assert_mapping(router.device.features())
+    _assert_mapping(router.device.work_mode())
     _assert_mapping(router.device.battery())
     _assert_mapping(router.device.sleep_wait_time())
 

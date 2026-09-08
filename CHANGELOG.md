@@ -7,6 +7,7 @@
 - added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors
 ### Added
 
+- added read-only `client.device.work_mode()` for the upstream live-verified normal-admin `router/router_get_work_mode` contract; source-known normal values are `router` and `bridge`, while the SDK preserves raw `mode`/`result` values and deliberately does not expose the disruptive work-mode setter in this block
 - added read-only `client.mobile.network_select_mode()` for the upstream live-verified normal-admin `util_wan/get_network_select_mode` contract; the raw `nw_sel_mode`/`result` response is preserved without semantic aliases, and operator scan/manual selection remain intentionally outside this helper
 - added read-only `client.ota.updated_status()` and `client.ota.query_state()` wrappers for the upstream live-verified OTA status/state contracts; `query_state()` sends exactly `{"type": 1}`, preserves raw state strings, and does not reinterpret `idle` as proof that firmware is current
 - added `client.device.set_ui_language()` for the live-verified `router/set_ui_language` contract; requested lowercase transport codes are validated against the target router's runtime `router/get_device_info.lang_list`, same-state writes are avoided, only `language` is sent, and success requires exact `router/get_ui_language` read-back
@@ -55,6 +56,7 @@
 
 ### Physical validation
 
+- router work-mode read physically validated on ACIY.3 on 2026-09-08: targeted `test_device_health_reads` exercised the existing safe device-health reads plus `router/router_get_work_mode` through `client.device.work_mode()` and passed `1/1` in 3.43 s; no work-mode write, bridge transition, reboot or connectivity mutation occurred
 - WAN network selection mode read physically validated on ACIY.3 on 2026-09-08: targeted `test_mobile_status_reads` exercised the existing mobile read group plus `util_wan/get_network_select_mode` through `client.mobile.network_select_mode()` and passed `1/1` in 0.61 s; no operator scan, network-selection write or connectivity transition occurred
 - OTA read-only namespace physically validated on ACIY.3 on 2026-09-08: targeted `test_ota_reads` exercised `ota/get_updated_status` and `ota/new_query` with exactly `{"type": 1}` through `client.ota` and passed `1/1` in 0.47 s; no manual update check, download, install, state clear or cancellation action was invoked
 - UI-language setter physically validated on ACIY.3 on 2026-09-08: the runtime `lang_list` was `en,dk,fr,fi,pt,it,se,de`, the current language was `en`, and the targeted reversible test changed `en -> de`, required exact `get_ui_language` read-back, restored `de -> en` in `finally`, and passed `1/1` in 1.33 s; no device/SIM identifiers were printed

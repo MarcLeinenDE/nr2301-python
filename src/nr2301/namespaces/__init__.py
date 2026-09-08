@@ -12,6 +12,7 @@ from .device import (
     RuntimeInfo,
     SleepWaitTime,
     UILanguage,
+    WorkMode,
 )
 from .firewall import (
     FirewallDisableInfo,
@@ -217,4 +218,5 @@ __all__ = [
     "WiFiWPSResponse",
     "WiFiWPSState",
     "WPSStatus",
+    "WorkMode",
 ]

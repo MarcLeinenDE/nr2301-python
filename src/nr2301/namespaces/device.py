@@ -85,6 +85,11 @@ class UILanguage(TypedDict, total=False):
     result: int
 
 
+class WorkMode(TypedDict, total=False):
+    mode: str
+    result: int
+
+
 class BatteryInfo(TypedDict, total=False):
     capacity: int
     ind: int
@@ -162,6 +167,19 @@ class DeviceNamespace:
         return cast(
             UILanguage,
             self._client.call("router", "get_ui_language", timeout=timeout),
+        )
+
+    def work_mode(self, *, timeout: float | None = None) -> WorkMode:
+        """Return the raw router/bridge work-mode response.
+
+        Upstream semantics currently document ``router`` and ``bridge`` as the
+        source-known normal values. The SDK preserves the raw firmware value
+        rather than coercing unknown future values into either state.
+        """
+
+        return cast(
+            WorkMode,
+            self._client.call("router", "router_get_work_mode", timeout=timeout),
         )
 
     def set_ui_language(
