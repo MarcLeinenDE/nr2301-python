@@ -71,6 +71,7 @@ def test_mobile_status_reads(router):
     _assert_mapping(router.mobile.cell_info())
     _assert_mapping(router.mobile.wan_info())
     _assert_mapping(router.mobile.available_network_modes())
+    _assert_mapping(router.mobile.network_select_mode())
     _assert_mapping(router.mobile.network_settings())
 
 
