@@ -48,6 +48,35 @@ def test_firewall_read_helpers_use_live_verified_get_methods(helper_name, api_me
     assert "json" not in kwargs
 
 
+@pytest.mark.parametrize(
+    ("helper_name", "api_method", "request_key"),
+    [
+        ("ip_filter", "ww_read_ip_filter", "ww_ip_filter"),
+        ("port_filter", "ww_read_port_filter", "ww_port_filter"),
+    ],
+)
+def test_firewall_filter_reads_use_live_verified_empty_list_body(
+    helper_name, api_method, request_key
+):
+    payload = {
+        "firewall": {
+            "list": [{"synthetic": "preserve-me"}],
+            "setting_response": "OK",
+        }
+    }
+    client, session = authenticated_client(payload)
+
+    helper = getattr(client.firewall, helper_name)
+    assert helper() == payload
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"]["path"] == "firewall"
+    assert kwargs["params"]["method"] == api_method
+    assert kwargs["json"] == {request_key: {"list": []}}
+
+
 def test_firewall_reads_preserve_raw_values_without_semantic_remapping():
     payload = {
         "firewall": {
@@ -71,3 +100,18 @@ def test_firewall_list_reads_preserve_items_exactly():
     client, _ = authenticated_client(payload)
 
     assert client.firewall.port_forward() == payload
+
+
+def test_firewall_filter_reads_preserve_unknown_rule_items_exactly():
+    payload = {
+        "firewall": {
+            "list": [
+                {"unknown": "one", "nested": {"value": 1}},
+                "raw-string-item",
+            ],
+            "setting_response": "RAW",
+        }
+    }
+    client, _ = authenticated_client(payload)
+
+    assert client.firewall.ip_filter() == payload

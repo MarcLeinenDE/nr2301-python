@@ -42,6 +42,10 @@ class FirewallUPnPInfo(FirewallValue, total=False):
     upnp_enable: str
 
 
+class FirewallRuleListInfo(FirewallValue, total=False):
+    list: list[object]
+
+
 class FirewallEnvelope(TypedDict, total=False):
     firewall: FirewallValue
 
@@ -100,6 +104,10 @@ class FirewallSwitchPortModeResponse(TypedDict, total=False):
 
 class FirewallUPnPResponse(TypedDict, total=False):
     firewall: FirewallUPnPInfo
+
+
+class FirewallRuleListResponse(TypedDict, total=False):
+    firewall: FirewallRuleListInfo
 
 
 class FirewallNamespace:
@@ -167,6 +175,32 @@ class FirewallNamespace:
         return cast(
             FirewallURLFilterResponse,
             self._client.call("firewall", "get_url_filter", timeout=timeout),
+        )
+
+    def ip_filter(self, *, timeout: float | None = None) -> FirewallRuleListResponse:
+        """Read the raw IP-filter list using the live-verified empty-list body."""
+
+        return cast(
+            FirewallRuleListResponse,
+            self._client.call(
+                "firewall",
+                "ww_read_ip_filter",
+                data={"ww_ip_filter": {"list": []}},
+                timeout=timeout,
+            ),
+        )
+
+    def port_filter(self, *, timeout: float | None = None) -> FirewallRuleListResponse:
+        """Read the raw port-filter list using the live-verified empty-list body."""
+
+        return cast(
+            FirewallRuleListResponse,
+            self._client.call(
+                "firewall",
+                "ww_read_port_filter",
+                data={"ww_port_filter": {"list": []}},
+                timeout=timeout,
+            ),
         )
 
     def ip_filter_mode_state(
