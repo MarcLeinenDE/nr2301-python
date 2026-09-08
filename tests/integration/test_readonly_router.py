@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 import pytest
 
@@ -140,6 +141,37 @@ def test_wifi_status_reads(router):
 def test_sms_summary_read(router):
     # Summary only: do not list mailbox nodes/message bodies in this smoke test.
     _assert_mapping(router.sms.brief_info())
+
+
+def test_phonebook_group_read(router):
+    # Select a real group index but never print group/contact names or phone numbers.
+    groups_response = router.phonebook.groups()
+    groups = groups_response.get("grouplist")
+    assert isinstance(groups, list)
+
+    candidates = [
+        group
+        for group in groups
+        if isinstance(group, Mapping)
+        and isinstance(group.get("index"), int)
+        and not isinstance(group.get("index"), bool)
+    ]
+    if not candidates:
+        pytest.skip("router returned no usable phonebook group index")
+
+    empty_groups = [group for group in candidates if group.get("contactcount") == 0]
+    selected = empty_groups[0] if empty_groups else candidates[0]
+
+    response = router.phonebook.contacts_by_group(
+        selected["index"],
+        page_capacity=1,
+        page_index=0,
+    )
+
+    _assert_mapping(response)
+    assert isinstance(response.get("result"), int)
+    assert isinstance(response.get("contactcount"), int)
+    assert isinstance(response.get("contactlist"), list)
 
 
 def test_statistics_reads(router):
