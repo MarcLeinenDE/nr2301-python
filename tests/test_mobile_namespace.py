@@ -39,6 +39,20 @@ def test_mobile_helpers_use_live_verified_get_methods(helper_name, api_method):
     assert kwargs["params"]["method"] == api_method
 
 
+def test_network_select_mode_uses_live_verified_util_wan_getter():
+    payload = {"nw_sel_mode": "auto", "result": 0}
+    client, session = authenticated_client(payload)
+
+    assert client.mobile.network_select_mode() == payload
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "util_wan"
+    assert kwargs["params"]["method"] == "get_network_select_mode"
+    assert "json" not in kwargs
+
+
 def test_set_network_mode_validates_runtime_mode_and_verifies_readback():
     client, session = authenticated_client(
         {"network_modes": ["auto", "5g-sa"], "result": 0},
