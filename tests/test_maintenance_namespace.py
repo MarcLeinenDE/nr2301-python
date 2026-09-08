@@ -17,8 +17,8 @@ def authenticated_client(*payloads):
     return client, session
 
 
-def test_timed_reboot_uses_documented_get_method():
-    payload = {"enable": 1, "time": "03:30", "repeat": 62, "result": 0}
+def test_timed_reboot_uses_documented_get_method_and_preserves_raw_time():
+    payload = {"enable": 0, "time": "0:0", "repeat": 128, "result": 0}
     client, session = authenticated_client(payload)
 
     assert client.maintenance.timed_reboot() == payload
@@ -49,19 +49,33 @@ def test_set_timed_reboot_writes_exact_fields_and_verifies_readback():
     assert write_kwargs["json"] == {"enable": 0, "time": "23:58", "repeat": 63}
 
 
-def test_set_timed_reboot_same_state_avoids_write():
-    current = {"enable": 0, "time": "23:58", "repeat": 63, "result": 0}
+def test_set_timed_reboot_normalizes_unpadded_input_before_write():
+    client, session = authenticated_client(
+        {"enable": 1, "time": "3:30", "repeat": 62, "result": 0},
+        {"router": {"setting_response": "OK"}},
+        {"enable": 0, "time": "0:0", "repeat": 63, "result": 0},
+    )
+
+    result = client.maintenance.set_timed_reboot(False, "0:0", 63)
+
+    assert result["time"] == "0:0"
+    _, _, write_kwargs = session.calls[1]
+    assert write_kwargs["json"] == {"enable": 0, "time": "00:00", "repeat": 63}
+
+
+def test_set_timed_reboot_same_semantic_state_avoids_write_across_padding():
+    current = {"enable": 0, "time": "0:0", "repeat": 63, "result": 0}
     client, session = authenticated_client(current)
 
-    assert client.maintenance.set_timed_reboot(False, "23:58", 63) == current
+    assert client.maintenance.set_timed_reboot(False, "00:00", 63) == current
     assert [call[0] for call in session.calls] == ["GET"]
 
 
-@pytest.mark.parametrize("invalid", ["3:30", "24:00", "23:60", "03:30:00", ""])
+@pytest.mark.parametrize("invalid", ["24:00", "23:60", "3:", "03:30:00", ""])
 def test_set_timed_reboot_rejects_invalid_time(invalid):
     client, session = authenticated_client()
 
-    with pytest.raises(ValueError, match="HH:MM"):
+    with pytest.raises(ValueError, match="H:M/HH:MM"):
         client.maintenance.set_timed_reboot(False, invalid, 1)
 
     assert session.calls == []
@@ -88,11 +102,11 @@ def test_set_timed_reboot_rejects_invalid_types_before_network_access():
     assert session.calls == []
 
 
-def test_set_timed_reboot_raises_when_exact_readback_does_not_match():
+def test_set_timed_reboot_raises_when_semantic_readback_does_not_match():
     client, _ = authenticated_client(
         {"enable": 1, "time": "03:30", "repeat": 62, "result": 0},
         {"router": {"setting_response": "OK"}},
-        {"enable": 1, "time": "03:30", "repeat": 62, "result": 0},
+        {"enable": 1, "time": "3:30", "repeat": 62, "result": 0},
     )
 
     with pytest.raises(APIError) as exc_info:
