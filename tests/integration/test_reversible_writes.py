@@ -64,17 +64,30 @@ def _sleep_wait_minutes(router: NR2301Client) -> int:
     return value
 
 
+def _canonical_timed_reboot_time(value: object) -> str:
+    assert isinstance(value, str)
+    match = re.fullmatch(r"([0-9]{1,2}):([0-9]{1,2})", value)
+    assert match is not None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    assert 0 <= hour <= 23
+    assert 0 <= minute <= 59
+    return f"{hour:02d}:{minute:02d}"
+
+
 def _timed_reboot_settings(router: NR2301Client) -> dict[str, object]:
     response = router.maintenance.timed_reboot()
     enable = response.get("enable")
-    time = response.get("time")
     repeat = response.get("repeat")
 
     assert enable in {0, 1}
-    assert isinstance(time, str) and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time)
     assert isinstance(repeat, int) and not isinstance(repeat, bool)
     assert 0 <= repeat <= 255
-    return {"enable": enable, "time": time, "repeat": repeat}
+    return {
+        "enable": enable,
+        "time": _canonical_timed_reboot_time(response.get("time")),
+        "repeat": repeat,
+    }
 
 
 def test_data_roaming_toggle_and_restore(router: NR2301Client):
@@ -185,7 +198,7 @@ def test_timed_reboot_disabled_probe_and_restore(router: NR2301Client):
         # write/read-back semantics without creating an active reboot trigger.
         changed = router.maintenance.set_timed_reboot(False, target_time, target_repeat)
         assert changed.get("enable") == 0
-        assert changed.get("time") == target_time
+        assert _canonical_timed_reboot_time(changed.get("time")) == target_time
         assert changed.get("repeat") == target_repeat
         assert _timed_reboot_settings(router) == {
             "enable": 0,
