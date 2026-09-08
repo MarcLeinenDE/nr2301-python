@@ -75,6 +75,12 @@ def test_mobile_status_reads(router):
     _assert_mapping(router.mobile.network_select_mode())
     _assert_mapping(router.mobile.network_settings())
 
+    # These two engineering-diagnostic reads are normal-admin accessible only
+    # through one-member multicalls. Do not print or inspect concrete cell IDs,
+    # bands or radio measurements in the routine smoke suite.
+    _assert_mapping(router.mobile.carrier_aggregation_info())
+    _assert_mapping(router.mobile.radio_metrics())
+
 
 def test_vpn_status_read(router):
     # Status only. Do not call get_vpn_clients(): profile reads may contain
