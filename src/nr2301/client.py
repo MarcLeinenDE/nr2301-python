@@ -12,6 +12,7 @@ from .auth import challenge_response, generate_user_id, login_result_text
 from .exceptions import AuthenticationError, ProtocolError
 from .namespaces import (
     DeviceNamespace,
+    FirewallNamespace,
     LANNamespace,
     MaintenanceNamespace,
     MobileNamespace,
@@ -51,6 +52,7 @@ class NR2301Client:
         self.mobile = MobileNamespace(self)
         self.sim = SIMNamespace(self)
         self.lan = LANNamespace(self)
+        self.firewall = FirewallNamespace(self)
         self.wifi = WiFiNamespace(self)
         self.sms = SMSNamespace(self)
         self.statistics = StatisticsNamespace(self)
