@@ -19,7 +19,7 @@ Implemented so far:
 - explicit transport/protocol/authentication/API exceptions
 - context-manager support
 - typed read-only `version` helpers
-- safe device/router health, battery, feature and identity reads plus verified auto-sleep timeout writes
+- safe device/router health, battery, feature and identity reads plus verified auto-sleep timeout and UI-language writes
 - scheduled router-maintenance reads plus physically verified timed-reboot schedule writes with semantic read-back/restore
 - safe SIM status plus documented raw-value summary labels and physically verified PIN lifecycle helpers
 - safe traffic/client-statistics reads
@@ -112,6 +112,14 @@ router.device.set_sleep_wait_time(30)
 ```
 
 Accepted values are exactly `0` (off), `10`, `20`, `30`, `40` and `60` minutes. The helper avoids an unnecessary same-state write, sends only the documented `time` field and accepts the change only after `aoc/sleep_wait_time` reports the requested value exactly.
+
+UI language changes use the target router's own runtime capability list rather than a hard-coded SDK enum:
+
+```python
+router.device.set_ui_language("de")
+```
+
+`set_ui_language()` reads `router/get_device_info.lang_list`, accepts only lowercase transport codes currently advertised by that router, avoids a same-state write, sends only the documented `language` field, and requires exact `router/get_ui_language` read-back. On tested firmware `V1.00(ACIY.3)C0`, the observed runtime list was `en,dk,fr,fi,pt,it,se,de`; the 2026-09-08 physical test changed `en → de` and restored `de → en` successfully. Applications should not assume that this observed list is universal across firmware variants.
 
 Additional identity surfaces are available when an application deliberately needs them:
 
