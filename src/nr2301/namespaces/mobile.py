@@ -66,6 +66,13 @@ class AvailableNetworkModes(TypedDict, total=False):
     result: int
 
 
+class NetworkSelectMode(TypedDict, total=False):
+    """Known response fields returned by `util_wan/get_network_select_mode`."""
+
+    nw_sel_mode: str
+    result: int
+
+
 class NetworkSettings(TypedDict, total=False):
     """Known fields from `cm/get_network_settings.network_settings`."""
 
@@ -110,6 +117,22 @@ class MobileNamespace:
             self._client.call(
                 "cm",
                 "get_available_network_mode",
+                timeout=timeout,
+            ),
+        )
+
+    def network_select_mode(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> NetworkSelectMode:
+        """Return the raw automatic/manual WAN network-selection mode."""
+
+        return cast(
+            NetworkSelectMode,
+            self._client.call(
+                "util_wan",
+                "get_network_select_mode",
                 timeout=timeout,
             ),
         )
