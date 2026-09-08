@@ -64,6 +64,20 @@ def _sleep_wait_minutes(router: NR2301Client) -> int:
     return value
 
 
+def _ui_language_state(router: NR2301Client) -> tuple[str, tuple[str, ...]]:
+    language_response = router.device.ui_language()
+    current = language_response.get("language")
+    assert isinstance(current, str) and current
+
+    info = router.device.info()
+    raw_list = info.get("lang_list")
+    assert isinstance(raw_list, str)
+    available = tuple(part.strip() for part in raw_list.split(",") if part.strip())
+    assert available
+    assert current in available
+    return current, available
+
+
 def _canonical_timed_reboot_time(value: object) -> str:
     assert isinstance(value, str)
     match = re.fullmatch(r"([0-9]{1,2}):([0-9]{1,2})", value)
@@ -178,6 +192,30 @@ def test_sleep_wait_time_change_and_restore(router: NR2301Client):
         router.device.set_sleep_wait_time(original)
 
     assert _sleep_wait_minutes(router) == original
+
+
+def test_ui_language_change_and_restore(router: NR2301Client):
+    original, available = _ui_language_state(router)
+    alternatives = [code for code in available if code != original]
+    if not alternatives:
+        pytest.skip("router currently reports no alternative UI language")
+
+    # Prefer German on the tested router because it is a known advertised code,
+    # otherwise use the first runtime-advertised alternative.
+    target = "de" if "de" in alternatives else alternatives[0]
+
+    try:
+        changed = router.device.set_ui_language(target)
+        assert changed.get("language") == target
+        current, current_available = _ui_language_state(router)
+        assert current == target
+        assert current_available == available
+    finally:
+        router.device.set_ui_language(original)
+
+    restored, restored_available = _ui_language_state(router)
+    assert restored == original
+    assert restored_available == available
 
 
 def test_timed_reboot_disabled_probe_and_restore(router: NR2301Client):

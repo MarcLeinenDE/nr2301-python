@@ -164,6 +164,53 @@ class DeviceNamespace:
             self._client.call("router", "get_ui_language", timeout=timeout),
         )
 
+    def set_ui_language(
+        self,
+        language: str,
+        *,
+        timeout: float | None = None,
+    ) -> UILanguage:
+        """Set one router-advertised UI language and require exact read-back.
+
+        The stock frontend uses lowercase transport codes. Instead of freezing
+        a firmware-specific list in the SDK, this helper validates the requested
+        code against `router/get_device_info.lang_list` on the target router.
+        Only the documented `language` field is written.
+        """
+
+        if not isinstance(language, str):
+            raise TypeError("language must be a str")
+        if not language:
+            raise ValueError("language must not be empty")
+
+        current = self.ui_language(timeout=timeout)
+        current_code = self._ui_language_code(current)
+        available = self._available_ui_languages(self.info(timeout=timeout))
+        if language not in available:
+            raise ValueError(
+                "language must be one of the router-advertised codes: "
+                + ", ".join(available)
+            )
+        if current_code == language:
+            return current
+
+        self._client.call(
+            "router",
+            "set_ui_language",
+            data={"language": language},
+            timeout=timeout,
+        )
+
+        verified = self.ui_language(timeout=timeout)
+        actual = self._ui_language_code(verified)
+        if actual != language:
+            raise APIError(
+                "router/set_ui_language could not be verified by exact read-back",
+                method_id="router/set_ui_language",
+                response={"expected": language, "actual": actual},
+            )
+        return verified
+
     def battery(self, *, timeout: float | None = None) -> BatteryInfo:
         """Return battery capacity/status and frontend-interpreted temperature in °C."""
 
@@ -226,6 +273,29 @@ class DeviceNamespace:
                 response={"expected": minutes, "actual": actual},
             )
         return verified
+
+    @staticmethod
+    def _ui_language_code(response: UILanguage) -> str:
+        value: Any = response.get("language")
+        if not isinstance(value, str) or not value:
+            raise ProtocolError(
+                "router/get_ui_language did not return a non-empty language string"
+            )
+        return value
+
+    @staticmethod
+    def _available_ui_languages(response: DeviceInfo) -> tuple[str, ...]:
+        raw: Any = response.get("lang_list")
+        if not isinstance(raw, str):
+            raise ProtocolError(
+                "router/get_device_info did not return a string lang_list"
+            )
+        values = tuple(part.strip() for part in raw.split(",") if part.strip())
+        if not values:
+            raise ProtocolError(
+                "router/get_device_info returned an empty lang_list"
+            )
+        return values
 
     @staticmethod
     def _sleep_wait_minutes(response: SleepWaitTime) -> int:
