@@ -45,7 +45,7 @@
 - staged physical-test policy for the dedicated non-production router: read-only, reversible-write and destructive/recovery levels, with USB-management-mode mutation explicitly excluded from the current campaign
 - complete-SDK-coverage goal plus mandatory feedback of every new physical SDK finding into `nr2301-api`
 - sanitized `examples/diagnose_auth_transport.py` probe that compares current requests transport with the historically working compact/header shape and an urllib reproduction without reading or transmitting the administrator password
-- `tests/integration/test_reversible_writes.py`, hard-gated by `NR2301_WRITE_INTEGRATION=1`, covering data-roaming, available network-mode, WPS and Wi-Fi Guest/combined-vs-separate transitions with `try/finally` restoration and final exact read-back
+- `tests/integration/test_reversible_writes.py`, hard-gated by `NR2301_WRITE_INTEGRATION=1`, covering data-roaming, available network-mode, WPS, Wi-Fi Guest/combined-vs-separate and auto-sleep timeout transitions with `try/finally` restoration and final exact read-back
 - `tests/integration/test_lan_dns_write.py`, hard-gated by `NR2301_WRITE_INTEGRATION=1`, exercising the combined 12-field DHCP/DNS setter while asserting that all non-DNS fields remain unchanged and the complete original object is restored exactly
 
 ### Physical validation
@@ -63,6 +63,7 @@
 
 ### Fixed / corrected
 
+- refreshed stale README surface descriptions so the documentation matches the already-implemented and physically evidenced SIM PIN lifecycle and SMS draft/get-by-ID helpers
 - fixed WPS action response handling after physical ACIY.3 evidence showed action-specific response envelopes: PBC/PIN return their `OK` results under `wireless`, while Cancel returns flat top-level `wps_call_cancel_result=OK`; helpers accept either physically evidenced envelope while still requiring the exact action result
 - corrected Wi-Fi restore semantics after physical security-matrix evidence showed `cur_channel` can legitimately differ after restoring configured auto-channel state; physical restore helpers now compare only mutable configuration and exclude runtime/capability metadata (`cur_channel`, `first_channel`, `last_channel`, `channel_list`)
 - hardened physical Wi-Fi restore assertions so a failed restore reports only mismatching field names instead of allowing pytest to render complete AP dictionaries containing real SSIDs/keys
