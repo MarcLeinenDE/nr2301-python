@@ -28,6 +28,33 @@ def assert_call(session, *, http_method, api_method, data=None):
         assert kwargs["json"] == data
 
 
+def test_contact_text_codec_matches_webui_utf16_code_units():
+    client, session = authenticated_client()
+
+    assert client.phonebook.encode_contact_text("Synthetic") == (
+        "00530079006e007400680065007400690063"
+    )
+    assert client.phonebook.encode_contact_text("SDK-ÄÖÜßé-€") == (
+        "00530044004b002d00c400d600dc00df00e9002d20ac"
+    )
+    assert client.phonebook.decode_contact_text(
+        "00530044004b002d00c400d600dc00df00e9002d20ac"
+    ) == "SDK-ÄÖÜßé-€"
+
+    assert session.calls == []
+
+
+def test_contact_text_decoder_rejects_malformed_values():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="multiple of four"):
+        client.phonebook.decode_contact_text("-")
+    with pytest.raises(ValueError, match="hexadecimal"):
+        client.phonebook.decode_contact_text("zzzz")
+
+    assert session.calls == []
+
+
 def test_groups_uses_bodyless_query_group_get():
     payload = {"result": 0, "grouplist": []}
     client, session = authenticated_client(payload)
@@ -151,7 +178,7 @@ def test_delete_group_stringifies_index():
     )
 
 
-def test_add_contact_uses_complete_nested_string_payload():
+def test_add_contact_encodes_name_and_email_only():
     payload = {"result": 0, "unknown": {"kept": True}}
     client, session = authenticated_client(payload)
 
@@ -172,18 +199,21 @@ def test_add_contact_uses_complete_nested_string_payload():
         data={
             "addnew_pb": {
                 "location": "0",
-                "name": "Synthetic",
+                "name": "00530079006e007400680065007400690063",
                 "mobile": "5550100001",
                 "home": "5550200001",
                 "office": "5550300001",
-                "email": "synthetic@example.invalid",
+                "email": (
+                    "00730079006e0074006800650074006900630040006500780061006d"
+                    "0070006c0065002e0069006e00760061006c00690064"
+                ),
                 "group": "4",
             }
         },
     )
 
 
-def test_update_contact_uses_complete_nested_string_payload():
+def test_update_contact_encodes_name_and_email_only():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
 
@@ -192,8 +222,8 @@ def test_update_contact_uses_complete_nested_string_payload():
         location=0,
         name="Synthetic",
         mobile="5551100001",
-        home="",
-        office="",
+        home="5551200001",
+        office="5551300001",
         email="synthetic@example.invalid",
         group=5,
     ) == payload
@@ -206,11 +236,14 @@ def test_update_contact_uses_complete_nested_string_payload():
             "update_pb": {
                 "location": "0",
                 "index": "8",
-                "name": "Synthetic",
+                "name": "00530079006e007400680065007400690063",
                 "mobile": "5551100001",
-                "home": "",
-                "office": "",
-                "email": "synthetic@example.invalid",
+                "home": "5551200001",
+                "office": "5551300001",
+                "email": (
+                    "00730079006e0074006800650074006900630040006500780061006d"
+                    "0070006c0065002e0069006e00760061006c00690064"
+                ),
                 "group": "5",
             }
         },

@@ -90,7 +90,7 @@ def _find_group(router: NR2301Client, name: str) -> Mapping[str, object] | None:
 
 def _cleanup_new_local_indexes(router: NR2301Client, initial_indexes: set[int]) -> None:
     # Index-delta cleanup is deliberately independent of contact names because
-    # ACIY.3 does not round-trip every text field exactly on create/update.
+    # raw contact text uses the WebUI codec and other fields can be normalized.
     for _ in range(3):
         new_indexes = sorted(_indexes(router) - initial_indexes)
         if not new_indexes:
@@ -166,10 +166,10 @@ def test_phonebook_high_level_write_lifecycle_and_restore(router: NR2301Client):
         assert created.get("mobile") == mobile_initial
         assert _as_int(created.get("group")) == group_a_index
 
-        # ACIY.3 physically applies mobile + group through update_pb. Name,
-        # home, office and email remain firmware-specific/no-visible-effect
-        # fields, so this high-level test preserves their submitted values but
-        # only requires the two proven mutable fields on read-back.
+        # This lifecycle keeps its assertions on mobile + group because those
+        # are enough to exercise update + membership behavior here. The
+        # dedicated text-codec integration test separately proves that name is
+        # mutable when WebUI UniEncode serialization is used, including Unicode.
         response = router.phonebook.update_contact(
             contact_index,
             location=LOCAL_LOCATION,
