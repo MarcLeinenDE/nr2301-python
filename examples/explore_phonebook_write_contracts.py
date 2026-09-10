@@ -67,6 +67,15 @@ def _contacts_local(router: NR2301Client) -> list[Mapping[str, Any]]:
     return [item for item in values if isinstance(item, Mapping)]
 
 
+def _contact_indexes(items: list[Mapping[str, Any]]) -> set[int]:
+    result: set[int] = set()
+    for item in items:
+        value = _as_int(item.get("index"))
+        if value is not None:
+            result.add(value)
+    return result
+
+
 def _find_contact(
     items: list[Mapping[str, Any]],
     *,
@@ -121,13 +130,10 @@ def _create_contact(
     mobile: str,
     email: str,
     group: int,
+    initial_indexes: set[int],
 ) -> tuple[int, Mapping[str, Any]]:
     before = _contacts_local(router)
-    before_indexes = {
-        index
-        for item in before
-        if (index := _as_int(item.get("index"))) is not None
-    }
+    before_indexes = _contact_indexes(before)
     response = router.call(
         "phonebook",
         "addnew_pb",
@@ -147,11 +153,7 @@ def _create_contact(
     created = _find_contact(after, name=name)
     index = _as_int(created.get("index")) if created is not None else None
     if index is None:
-        after_indexes = {
-            candidate
-            for item in after
-            if (candidate := _as_int(item.get("index"))) is not None
-        }
+        after_indexes = _contact_indexes(after)
         new_indexes = after_indexes - before_indexes
         if len(new_indexes) == 1:
             index = next(iter(new_indexes))
@@ -160,6 +162,8 @@ def _create_contact(
             f"addnew_pb returned but the synthetic contact index could not be isolated; "
             f"result={_result_text(response)}"
         )
+    if index in initial_indexes:
+        raise RuntimeError("addnew_pb reused a pre-run contact index; refusing to treat it as synthetic")
     return index, response
 
 
@@ -181,37 +185,22 @@ def _delete_contact(router: NR2301Client, contact_index: int, *, label: str = "C
     return absent
 
 
-def _delete_synthetic_contacts(router: NR2301Client, prefix: str, *, label: str) -> bool:
+def _cleanup_new_indexes(router: NR2301Client, initial_indexes: set[int], *, label: str) -> bool:
     success = True
     for _ in range(3):
-        matches = [
-            item
-            for item in _contacts_local(router)
-            if isinstance(item.get("name"), str) and item["name"].startswith(prefix)
-        ]
-        if not matches:
-            return success
-        indexes = [
-            index
-            for item in matches
-            if (index := _as_int(item.get("index"))) is not None
-        ]
-        if len(indexes) != len(matches):
-            print(f"{label}_CONTACT_INDEX_WARNING = True")
-            success = False
-        for index in indexes:
+        current_indexes = _contact_indexes(_contacts_local(router))
+        new_indexes = sorted(current_indexes - initial_indexes)
+        if not new_indexes:
+            return success and current_indexes == initial_indexes
+        for index in new_indexes:
             try:
                 if not _delete_contact(router, index, label=label):
                     success = False
             except Exception as exc:  # pragma: no cover - physical recovery path
                 print(f"{label}_CONTACT_WARNING       = {type(exc).__name__}")
                 success = False
-    remaining = any(
-        isinstance(item.get("name"), str) and item["name"].startswith(prefix)
-        for item in _contacts_local(router)
-    )
-    print(f"{label}_CONTACT_PREFIX_PRESENT = {remaining}")
-    return success and not remaining
+    final_indexes = _contact_indexes(_contacts_local(router))
+    return success and final_indexes == initial_indexes
 
 
 def _delete_group(router: NR2301Client, group_index: int, names: set[str], *, label: str) -> bool:
@@ -250,6 +239,7 @@ def _probe_update_candidate(
     group: int,
     candidate_kind: str,
     serial: int,
+    initial_indexes: set[int],
 ) -> str:
     contact_prefix = f"{run_prefix}-UP{serial}"
     original_name = f"{contact_prefix}-A"
@@ -265,6 +255,7 @@ def _probe_update_candidate(
         mobile=original_mobile,
         email=original_email,
         group=group,
+        initial_indexes=initial_indexes,
     )
     print(f"UPDATE_{label}_CREATE_RESULT  = {_result_text(create_response)}")
     print(f"UPDATE_{label}_CONTACT_INDEX  = {contact_index}")
@@ -311,7 +302,7 @@ def _probe_update_candidate(
         result_text = _result_text(response)
     except Exception as exc:  # pragma: no cover - physical research path
         print(f"UPDATE_{label}_EXCEPTION      = {type(exc).__name__}")
-        _delete_synthetic_contacts(router, contact_prefix, label=f"UPDATE_{label}_CLEANUP")
+        _cleanup_new_indexes(router, initial_indexes, label=f"UPDATE_{label}_CLEANUP")
         return "EXCEPTION"
 
     same_index: Mapping[str, Any] | None = None
@@ -359,13 +350,14 @@ def _probe_update_candidate(
         semantics = "IN_PLACE"
     elif exact_copies:
         semantics = "COPY_ON_UPDATE"
-    elif any(flags):
+    elif flags[0] or flags[1] or flags[2]:
         semantics = "PARTIAL"
     else:
         semantics = "NO_VISIBLE_CHANGE"
     print(f"UPDATE_{label}_SEMANTICS      = {semantics}")
 
-    _delete_synthetic_contacts(router, contact_prefix, label=f"UPDATE_{label}_CLEANUP")
+    if not _cleanup_new_indexes(router, initial_indexes, label=f"UPDATE_{label}_CLEANUP"):
+        raise RuntimeError(f"cleanup failed after {label} update candidate")
     return semantics
 
 
@@ -397,6 +389,7 @@ def main() -> None:
 
         initial_groups = _groups(router)
         initial_local = _contacts_local(router)
+        initial_indexes = _contact_indexes(initial_local)
         print(f"INITIAL_GROUP_COUNT           = {len(initial_groups)}")
         print(f"INITIAL_LOCAL_CONTACT_COUNT   = {len(initial_local)}")
 
@@ -406,7 +399,6 @@ def main() -> None:
             )
 
         try:
-            # 1) Group create/update lifecycle.
             group_a_index, response = _create_group(router, group_a_name)
             print(f"GROUP_CREATE_RESULT           = {_result_text(response)}")
             print("GROUP_CREATE_READBACK         = OK")
@@ -427,8 +419,6 @@ def main() -> None:
             print(f"GROUP2_CREATE_RESULT          = {_result_text(response)}")
             print("GROUP2_CREATE_READBACK        = OK")
 
-            # 2) Isolated update_pb candidate matrix. Each candidate gets its own
-            # synthetic contact and is cleaned before the next candidate.
             update_candidates = [
                 ("STRINGS_FULL", "strings_full"),
                 ("INT_IDS_FULL", "int_ids_full"),
@@ -444,6 +434,7 @@ def main() -> None:
                     group=group_a_index,
                     candidate_kind=kind,
                     serial=serial,
+                    initial_indexes=initial_indexes,
                 )
                 if semantics in {"IN_PLACE", "COPY_ON_UPDATE"}:
                     print(f"UPDATE_CONFIRMED_CANDIDATE    = {label}")
@@ -455,16 +446,14 @@ def main() -> None:
                 print("UPDATE_CONFIRMED_CANDIDATE    = NONE")
                 print("UPDATE_CONFIRMED_SEMANTICS    = UNRESOLVED")
 
-            # 3) Fresh synthetic contact for move_contacts_to_group profiling.
             move_name = f"{run_prefix}-MOVE"
-            move_mobile = "5550400001"
-            move_email = "move@example.invalid"
             move_index, response = _create_contact(
                 router,
                 name=move_name,
-                mobile=move_mobile,
-                email=move_email,
+                mobile="5550400001",
+                email="move@example.invalid",
                 group=group_a_index,
+                initial_indexes=initial_indexes,
             )
             print(f"MOVE_CONTACT_CREATE_RESULT    = {_result_text(response)}")
             print(f"MOVE_CONTACT_INDEX            = {move_index}")
@@ -485,10 +474,7 @@ def main() -> None:
                     response = router.call(
                         "phonebook",
                         "move_contacts_to_group",
-                        data={
-                            "newgroup": newgroup_value,
-                            "contacts": contacts_value,
-                        },
+                        data={"newgroup": newgroup_value, "contacts": contacts_value},
                     )
                     result_text = _result_text(response)
                 except Exception as exc:  # pragma: no cover - physical research path
@@ -511,15 +497,9 @@ def main() -> None:
             if not move_success:
                 print("MOVE_CONFIRMED_REPRESENTATION = NONE")
 
-            # 4) Delete all synthetic contacts created by this run, including any
-            # possible update copies, then delete both synthetic groups.
-            contacts_clean = _delete_synthetic_contacts(
-                router,
-                run_prefix,
-                label="NOMINAL",
-            )
+            contacts_clean = _cleanup_new_indexes(router, initial_indexes, label="NOMINAL")
             if not contacts_clean:
-                raise RuntimeError("synthetic contacts remain after nominal cleanup")
+                raise RuntimeError("synthetic/new contact indexes remain after nominal cleanup")
 
             group_b_deleted = _delete_group(
                 router,
@@ -538,6 +518,7 @@ def main() -> None:
 
             final_groups = _groups(router)
             final_local = _contacts_local(router)
+            final_indexes = _contact_indexes(final_local)
             synthetic_group_present = any(
                 isinstance(item.get("name"), str) and item["name"].startswith(run_prefix)
                 for item in final_groups
@@ -546,22 +527,30 @@ def main() -> None:
                 isinstance(item.get("name"), str) and item["name"].startswith(run_prefix)
                 for item in final_local
             )
+            group_count_match = len(final_groups) == len(initial_groups)
+            local_count_match = len(final_local) == len(initial_local)
+            index_set_match = final_indexes == initial_indexes
             print(f"FINAL_GROUP_COUNT             = {len(final_groups)}")
             print(f"FINAL_LOCAL_CONTACT_COUNT     = {len(final_local)}")
             print(f"FINAL_SYNTHETIC_GROUP_PRESENT = {synthetic_group_present}")
             print(f"FINAL_SYNTHETIC_CONTACT_PRESENT = {synthetic_contact_present}")
-            print(f"FINAL_GROUP_COUNT_MATCH       = {len(final_groups) == len(initial_groups)}")
-            print(f"FINAL_LOCAL_COUNT_MATCH       = {len(final_local) == len(initial_local)}")
-            if synthetic_group_present or synthetic_contact_present:
-                raise RuntimeError("synthetic phonebook residue remains after nominal cleanup")
+            print(f"FINAL_GROUP_COUNT_MATCH       = {group_count_match}")
+            print(f"FINAL_LOCAL_COUNT_MATCH       = {local_count_match}")
+            print(f"FINAL_INDEX_SET_MATCH         = {index_set_match}")
+            if (
+                synthetic_group_present
+                or synthetic_contact_present
+                or not group_count_match
+                or not local_count_match
+                or not index_set_match
+            ):
+                raise RuntimeError("phonebook baseline was not exactly restored after profiler run")
 
             print("PHONEBOOK_WRITE_PROFILER       = PASS")
 
         finally:
-            # Best-effort cleanup for interrupted/failed research runs. Prefix matching
-            # catches both the original synthetic rows and any copy-on-update variants.
             try:
-                _delete_synthetic_contacts(router, run_prefix, label="CLEANUP")
+                _cleanup_new_indexes(router, initial_indexes, label="CLEANUP")
             except Exception as exc:  # pragma: no cover - physical recovery path
                 print(f"CLEANUP_CONTACT_WARNING       = {type(exc).__name__}")
 
