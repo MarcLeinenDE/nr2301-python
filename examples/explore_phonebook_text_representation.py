@@ -66,7 +66,7 @@ def _classify_text(original: str, observed: object) -> list[str]:
     labels: list[str] = []
     if observed == original:
         labels.append("IDENTITY")
-    if observed.strip() == original:
+    if observed.strip() == original and observed != original:
         labels.append("TRIMMED_WRAPPER_OR_WHITESPACE")
     if observed.lower() == original.lower() and observed != original:
         labels.append("CASE_ONLY")
@@ -94,7 +94,6 @@ def _classify_text(original: str, observed: object) -> list[str]:
         if observed == candidate:
             labels.append(label)
 
-    # Also try decoding the observed text as common hexadecimal forms.
     if len(observed) % 2 == 0:
         try:
             raw = bytes.fromhex(observed)
@@ -162,23 +161,36 @@ def main() -> None:
         if initial_indexes:
             raise RuntimeError("preflight requires an empty local phonebook")
 
+        successful_cases = 0
         try:
             for serial, (label, name, email) in enumerate(cases, start=1):
                 before = _indexes(router)
-                response = router.phonebook.add_contact(
-                    name,
-                    location=LOCAL_LOCATION,
-                    mobile=f"55581000{serial}",
-                    home="",
-                    office="",
-                    email=email,
-                    group=0,
-                )
+                try:
+                    response = router.phonebook.add_contact(
+                        name,
+                        location=LOCAL_LOCATION,
+                        mobile=f"55581000{serial}",
+                        home="",
+                        office="",
+                        email=email,
+                        group=0,
+                    )
+                except Exception as exc:  # pragma: no cover - physical research path
+                    print(f"{label}_CREATE_EXCEPTION    = {type(exc).__name__}")
+                    print(f"{label}_CREATE_SUPPORTED    = False")
+                    continue
+
                 print(f"{label}_CREATE_RESULT       = {response.get('result')!r}")
                 new = _indexes(router) - before
                 if len(new) != 1:
-                    raise RuntimeError(f"{label}: contact index delta was {len(new)}, expected 1")
+                    print(f"{label}_CREATE_SUPPORTED    = False")
+                    print(f"{label}_NEW_INDEX_COUNT     = {len(new)}")
+                    _cleanup(router, initial_indexes)
+                    continue
+
+                successful_cases += 1
                 index = next(iter(new))
+                print(f"{label}_CREATE_SUPPORTED    = True")
                 print(f"{label}_CONTACT_INDEX       = {index}")
                 contact = _find(router, index)
                 _describe(f"{label}_NAME", name, contact.get("name"))
@@ -194,8 +206,11 @@ def main() -> None:
             _cleanup(router, initial_indexes)
 
         final_indexes = _indexes(router)
+        print(f"SUCCESSFUL_CASE_COUNT       = {successful_cases}")
         print(f"FINAL_LOCAL_CONTACT_COUNT   = {len(final_indexes)}")
         print(f"FINAL_INDEX_SET_MATCH       = {final_indexes == initial_indexes}")
+        if successful_cases == 0:
+            raise RuntimeError("no text-representation probe created a readable contact")
         if final_indexes != initial_indexes:
             raise RuntimeError("final restore check failed")
         print("PHONEBOOK_TEXT_REPRESENTATION_PROFILER = PASS")
