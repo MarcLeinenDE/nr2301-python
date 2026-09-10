@@ -137,7 +137,7 @@ def _create_contact(
     email: str,
     group: int,
     initial_indexes: set[int],
-) -> int:
+) -> tuple[int, Mapping[str, Any]]:
     response = router.call(
         "phonebook",
         "addnew_pb",
@@ -160,15 +160,27 @@ def _create_contact(
             f"addnew_pb did not create exactly one new index; result={_result_text(response)}"
         )
     index = next(iter(new_indexes))
+    row = _find_by_index(current, index)
+    if row is None:
+        raise RuntimeError("new contact index disappeared before baseline readback")
     print(f"CREATE_RESULT                 = {_result_text(response)}")
     print(f"CREATE_INDEX                  = {index}")
-    return index
+    return index, row
 
 
 def _field_value(row: Mapping[str, Any], field: str) -> Any:
     if field == "group":
         return _as_int(row.get(field))
     return row.get(field)
+
+
+def _emit_baseline(label: str, row: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
+    for field in ("name", "mobile", "home", "office", "email", "group"):
+        observed = _field_value(row, field)
+        exp = expected[field]
+        print(f"FIELD_{label}_BASE_{field.upper()}_MATCH = {observed == exp}")
+        print(f"FIELD_{label}_BASE_{field.upper()}_EMPTY = {observed in ('', None)}")
+        print(f"FIELD_{label}_BASE_{field.upper()}_TYPE  = {type(observed).__name__}")
 
 
 def _probe_field(
@@ -189,23 +201,23 @@ def _probe_field(
         "email": f"field-{serial}-a@example.invalid",
         "group": group_a,
     }
-    target: dict[str, Any] = dict(baseline)
+    requested_target: dict[str, Any] = dict(baseline)
     if field == "name":
-        target[field] = f"{run_prefix}-{serial}-N1"
+        requested_target[field] = f"{run_prefix}-{serial}-N1"
     elif field == "mobile":
-        target[field] = f"555110{serial:04d}"
+        requested_target[field] = f"555110{serial:04d}"
     elif field == "home":
-        target[field] = f"555210{serial:04d}"
+        requested_target[field] = f"555210{serial:04d}"
     elif field == "office":
-        target[field] = f"555310{serial:04d}"
+        requested_target[field] = f"555310{serial:04d}"
     elif field == "email":
-        target[field] = f"field-{serial}-b@example.invalid"
+        requested_target[field] = f"field-{serial}-b@example.invalid"
     elif field == "group":
-        target[field] = group_b
+        requested_target[field] = group_b
     else:  # pragma: no cover
         raise ValueError(field)
 
-    index = _create_contact(
+    index, baseline_row = _create_contact(
         router,
         name=str(baseline["name"]),
         mobile=str(baseline["mobile"]),
@@ -216,42 +228,44 @@ def _probe_field(
         initial_indexes=initial_indexes,
     )
 
-    row = _find_by_index(_contacts(router), index)
-    if row is None:
-        raise RuntimeError("created contact disappeared before update probe")
-    baseline_exact = all(_field_value(row, key) == value for key, value in baseline.items())
-    print(f"FIELD_{field.upper()}_BASELINE_EXACT = {baseline_exact}")
+    label = field.upper()
+    _emit_baseline(label, baseline_row, baseline)
+    observed_baseline = {
+        key: _field_value(baseline_row, key)
+        for key in ("name", "mobile", "home", "office", "email", "group")
+    }
 
     payload = {
         "location": "0",
         "index": str(index),
-        "name": str(target["name"]),
-        "mobile": str(target["mobile"]),
-        "home": str(target["home"]),
-        "office": str(target["office"]),
-        "email": str(target["email"]),
-        "group": str(target["group"]),
+        "name": str(requested_target["name"]),
+        "mobile": str(requested_target["mobile"]),
+        "home": str(requested_target["home"]),
+        "office": str(requested_target["office"]),
+        "email": str(requested_target["email"]),
+        "group": str(requested_target["group"]),
     }
     response = router.call("phonebook", "update_pb", data={"update_pb": payload})
     row = _find_by_index(_contacts(router), index)
-    print(f"FIELD_{field.upper()}_UPDATE_RESULT = {_result_text(response)}")
-    print(f"FIELD_{field.upper()}_SAME_INDEX    = {row is not None}")
+    print(f"FIELD_{label}_UPDATE_RESULT = {_result_text(response)}")
+    print(f"FIELD_{label}_SAME_INDEX    = {row is not None}")
     if row is not None:
         observed = _field_value(row, field)
-        original = baseline[field]
-        desired = target[field]
-        print(f"FIELD_{field.upper()}_TARGET_MATCH  = {observed == desired}")
-        print(f"FIELD_{field.upper()}_ORIGINAL_MATCH = {observed == original}")
-        print(f"FIELD_{field.upper()}_EMPTY         = {observed in ('', None)}")
-        other_unchanged = all(
-            _field_value(row, key) == value
-            for key, value in baseline.items()
+        before = observed_baseline[field]
+        desired = requested_target[field]
+        print(f"FIELD_{label}_TARGET_MATCH  = {observed == desired}")
+        print(f"FIELD_{label}_BASELINE_MATCH = {observed == before}")
+        print(f"FIELD_{label}_CHANGED_FROM_BASELINE = {observed != before}")
+        print(f"FIELD_{label}_EMPTY         = {observed in ('', None)}")
+        others_stable = all(
+            _field_value(row, key) == observed_baseline[key]
+            for key in observed_baseline
             if key != field
         )
-        print(f"FIELD_{field.upper()}_OTHERS_UNCHANGED = {other_unchanged}")
+        print(f"FIELD_{label}_OTHERS_STABLE_FROM_OBSERVED_BASE = {others_stable}")
 
     current_indexes = _indexes(_contacts(router))
-    print(f"FIELD_{field.upper()}_NEW_INDEX_COUNT = {len(current_indexes - initial_indexes)}")
+    print(f"FIELD_{label}_NEW_INDEX_COUNT = {len(current_indexes - initial_indexes)}")
     if not _cleanup_new_indexes(router, initial_indexes):
         raise RuntimeError(f"cleanup failed after {field} update probe")
 
