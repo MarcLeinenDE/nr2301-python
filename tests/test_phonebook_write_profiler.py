@@ -26,3 +26,11 @@ def test_phonebook_write_profiler_accepts_write_gate(monkeypatch):
     monkeypatch.setenv("NR2301_WRITE_INTEGRATION", "1")
     namespace = runpy.run_path(str(SCRIPT))
     namespace["_require_gate"]()
+
+
+def test_phonebook_write_profiler_contains_update_semantics_and_prefix_cleanup():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "UPDATE_CONFIRMED_SEMANTICS" in source
+    assert "COPY_ON_UPDATE" in source
+    assert "_delete_synthetic_contacts" in source
+    assert "NR2301_PHONEBOOK_REQUIRE_EMPTY" in source
