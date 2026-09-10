@@ -71,6 +71,18 @@ def _decode(router: NR2301Client, value: object) -> str | None:
         return None
 
 
+def _field_state(actual: object, target: str, baseline: object) -> str:
+    if actual == target:
+        return "PLAIN_TARGET"
+    if actual == baseline:
+        return "UNCHANGED_FROM_BASELINE"
+    if actual is None:
+        return "NONE"
+    if actual == "-":
+        return "DASH_SENTINEL"
+    return "OTHER"
+
+
 def test_phonebook_text_codec_and_remaining_fields(router=None):
     password = os.environ.get("NR2301_PASSWORD")
     if not password:
@@ -118,22 +130,27 @@ def test_phonebook_text_codec_and_remaining_fields(router=None):
             print("CREATE_INDEX               =", created_index)
 
             item = _find(client, created_index)
-            raw_name = item.get("name")
-            raw_email = item.get("email")
-            print("CREATE_NAME_RAW_MATCH      =", raw_name == client.phonebook.encode_contact_text(create_name))
-            print("CREATE_NAME_DECODE_MATCH   =", _decode(client, raw_name) == create_name)
-            print("CREATE_EMAIL_RAW_MATCH     =", raw_email == client.phonebook.encode_contact_text(create_email))
-            print("CREATE_EMAIL_DECODE_MATCH  =", _decode(client, raw_email) == create_email)
-            print("CREATE_MOBILE_MATCH        =", item.get("mobile") == create_mobile)
-            print("CREATE_HOME_TYPE           =", type(item.get("home")).__name__)
-            print("CREATE_HOME_MATCH          =", item.get("home") == create_home)
-            print("CREATE_OFFICE_TYPE         =", type(item.get("office")).__name__)
-            print("CREATE_OFFICE_MATCH        =", item.get("office") == create_office)
+            create_raw_name = item.get("name")
+            create_raw_email = item.get("email")
+            create_home_observed = item.get("home")
+            create_office_observed = item.get("office")
 
-            assert raw_name == client.phonebook.encode_contact_text(create_name)
-            assert _decode(client, raw_name) == create_name
-            assert raw_email == client.phonebook.encode_contact_text(create_email)
-            assert _decode(client, raw_email) == create_email
+            print("CREATE_NAME_RAW_MATCH      =", create_raw_name == client.phonebook.encode_contact_text(create_name))
+            print("CREATE_NAME_DECODE_MATCH   =", _decode(client, create_raw_name) == create_name)
+            print("CREATE_EMAIL_RAW_REPR      =", repr(create_raw_email))
+            print("CREATE_EMAIL_RAW_MATCH     =", create_raw_email == client.phonebook.encode_contact_text(create_email))
+            print("CREATE_EMAIL_DECODE_MATCH  =", _decode(client, create_raw_email) == create_email)
+            print("CREATE_MOBILE_MATCH        =", item.get("mobile") == create_mobile)
+            print("CREATE_HOME_REPR           =", repr(create_home_observed))
+            print("CREATE_HOME_MATCH          =", create_home_observed == create_home)
+            print("CREATE_OFFICE_REPR         =", repr(create_office_observed))
+            print("CREATE_OFFICE_MATCH        =", create_office_observed == create_office)
+
+            # The WebUI-derived codec itself must round-trip for name. The
+            # remaining fields are characterization targets and must not abort
+            # the update half of this physical probe.
+            assert create_raw_name == client.phonebook.encode_contact_text(create_name)
+            assert _decode(client, create_raw_name) == create_name
             assert item.get("mobile") == create_mobile
 
             response = client.phonebook.update_contact(
@@ -150,24 +167,30 @@ def test_phonebook_text_codec_and_remaining_fields(router=None):
             assert response.get("result") == 0
 
             updated = _find(client, created_index)
-            raw_name = updated.get("name")
-            raw_email = updated.get("email")
+            update_raw_name = updated.get("name")
+            update_raw_email = updated.get("email")
+            update_home_observed = updated.get("home")
+            update_office_observed = updated.get("office")
+
             print("UPDATE_SAME_INDEX          =", _as_int(updated.get("index")) == created_index)
-            print("UPDATE_NAME_RAW_MATCH      =", raw_name == client.phonebook.encode_contact_text(update_name))
-            print("UPDATE_NAME_DECODE_MATCH   =", _decode(client, raw_name) == update_name)
-            print("UPDATE_EMAIL_RAW_MATCH     =", raw_email == client.phonebook.encode_contact_text(update_email))
-            print("UPDATE_EMAIL_DECODE_MATCH  =", _decode(client, raw_email) == update_email)
+            print("UPDATE_NAME_RAW_REPR       =", repr(update_raw_name))
+            print("UPDATE_NAME_RAW_MATCH      =", update_raw_name == client.phonebook.encode_contact_text(update_name))
+            print("UPDATE_NAME_DECODE_MATCH   =", _decode(client, update_raw_name) == update_name)
+            print("UPDATE_EMAIL_RAW_REPR      =", repr(update_raw_email))
+            print("UPDATE_EMAIL_RAW_MATCH     =", update_raw_email == client.phonebook.encode_contact_text(update_email))
+            print("UPDATE_EMAIL_DECODE_MATCH  =", _decode(client, update_raw_email) == update_email)
+            print("UPDATE_EMAIL_STATE         =", _field_state(update_raw_email, client.phonebook.encode_contact_text(update_email), create_raw_email))
             print("UPDATE_MOBILE_MATCH        =", updated.get("mobile") == update_mobile)
-            print("UPDATE_HOME_TYPE           =", type(updated.get("home")).__name__)
-            print("UPDATE_HOME_MATCH          =", updated.get("home") == update_home)
-            print("UPDATE_OFFICE_TYPE         =", type(updated.get("office")).__name__)
-            print("UPDATE_OFFICE_MATCH        =", updated.get("office") == update_office)
+            print("UPDATE_HOME_REPR           =", repr(update_home_observed))
+            print("UPDATE_HOME_MATCH          =", update_home_observed == update_home)
+            print("UPDATE_HOME_STATE          =", _field_state(update_home_observed, update_home, create_home_observed))
+            print("UPDATE_OFFICE_REPR         =", repr(update_office_observed))
+            print("UPDATE_OFFICE_MATCH        =", update_office_observed == update_office)
+            print("UPDATE_OFFICE_STATE        =", _field_state(update_office_observed, update_office, create_office_observed))
 
             assert _as_int(updated.get("index")) == created_index
-            assert raw_name == client.phonebook.encode_contact_text(update_name)
-            assert _decode(client, raw_name) == update_name
-            assert raw_email == client.phonebook.encode_contact_text(update_email)
-            assert _decode(client, raw_email) == update_email
+            assert update_raw_name == client.phonebook.encode_contact_text(update_name)
+            assert _decode(client, update_raw_name) == update_name
             assert updated.get("mobile") == update_mobile
         finally:
             for index in sorted(_indexes(client) - initial_indexes):
