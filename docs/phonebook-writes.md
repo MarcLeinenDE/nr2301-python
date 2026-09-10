@@ -119,3 +119,14 @@ The SDK does not invent a transformation for `name` or `email`; raw firmware val
 Phonebook write tests snapshot the pre-run local-contact index set. Any new local index is treated as test-owned and cleanup is complete only after the exact original index set is restored. This is intentionally stronger than matching synthetic names because ACIY.3 can alter contact text representation.
 
 Real names, phone numbers and SIM-contact contents must not be emitted in public logs or fixtures.
+
+## Physical validation
+
+The public high-level SDK surface was physically validated on 2026-09-10 against firmware `V1.00(ACIY.3)C0` using Python 3.13.5.
+
+`tests/integration/test_phonebook_writes.py` passed **2/2 tests in 4.32 s**:
+
+- `test_phonebook_high_level_write_lifecycle_and_restore` created/renamed groups, created one synthetic local contact, changed the physically proven `mobile` and `group` fields through `update_contact()`, moved the contact with `move_contact_to_group()`, deleted the contact/groups, and restored the exact initial local-contact index set.
+- `test_copy_all_from_sim_to_local_and_restore_local_index_set` exercised `copy_all_from_sim_to_local()` without modifying SIM storage, treated only newly created local indexes as test-owned, removed those local rows, and restored the exact initial local-contact index set.
+
+No real contact names, phone numbers or SIM-contact contents were printed or committed during this validation.
