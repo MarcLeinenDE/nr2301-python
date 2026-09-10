@@ -57,6 +57,40 @@ class PhonebookNamespace:
     def __init__(self, client: NR2301Client) -> None:
         self._client = client
 
+    @staticmethod
+    def encode_contact_text(value: str) -> str:
+        """Encode a contact name/email exactly like the shipped WebUI ``UniEncode``.
+
+        The WebUI serializes each JavaScript UTF-16 code unit as four lowercase
+        hexadecimal characters. Python's UTF-16BE byte representation yields
+        the same code-unit sequence, including surrogate pairs for characters
+        outside the BMP.
+        """
+
+        _require_str("value", value)
+        return value.encode("utf-16-be").hex()
+
+    @staticmethod
+    def decode_contact_text(value: str) -> str:
+        """Decode a valid WebUI ``UniEncode`` contact-text value.
+
+        This helper is intentionally strict: malformed or non-codec wire values
+        raise ``ValueError`` instead of being silently reinterpreted. Raw read
+        helpers continue to return router responses unchanged.
+        """
+
+        _require_str("value", value)
+        if len(value) % 4 != 0:
+            raise ValueError("encoded contact text length must be a multiple of four")
+        try:
+            raw = bytes.fromhex(value)
+        except ValueError as exc:
+            raise ValueError("encoded contact text must contain hexadecimal characters") from exc
+        try:
+            return raw.decode("utf-16-be")
+        except UnicodeDecodeError as exc:
+            raise ValueError("encoded contact text is not valid UTF-16BE code units") from exc
+
     def groups(self, *, timeout: float | None = None) -> PhonebookGroupsResponse:
         """Return phonebook groups using the body-less query_group GET."""
 
@@ -76,7 +110,10 @@ class PhonebookNamespace:
         """Return one raw phonebook location/page.
 
         Location values are intentionally left raw because the public API
-        evidence has not normalized a portable SDK enum for them.
+        evidence has not normalized a portable SDK enum for them. Contact
+        ``name`` and ``email`` fields are also returned exactly as the router
+        emits them; use :meth:`decode_contact_text` when a decoded text value is
+        wanted.
         """
 
         _require_nonnegative_int("location", location)
@@ -200,12 +237,11 @@ class PhonebookNamespace:
         group: int = 0,
         timeout: float | None = None,
     ) -> PhonebookWriteResponse:
-        """Create a contact using the complete live-confirmed nested wire object.
+        """Create a contact from human-readable field values.
 
-        The router accepts all numeric values as strings on this write path.
-        ACIY.3 create-time read-back preserves ``mobile`` and ``group`` exactly,
-        while other contact fields can be normalized or omitted by firmware.
-        The raw router response is returned unchanged.
+        ``name`` and ``email`` are encoded using the shipped WebUI's
+        ``UniEncode`` wire codec. ``mobile``, ``home`` and ``office`` remain
+        plain strings; numeric write fields are stringified as observed.
         """
 
         _validate_contact_fields(
@@ -225,11 +261,11 @@ class PhonebookNamespace:
                 data={
                     "addnew_pb": {
                         "location": str(location),
-                        "name": name,
+                        "name": self.encode_contact_text(name),
                         "mobile": mobile,
                         "home": home,
                         "office": office,
-                        "email": email,
+                        "email": self.encode_contact_text(email),
                         "group": str(group),
                     }
                 },
@@ -250,15 +286,12 @@ class PhonebookNamespace:
         group: int,
         timeout: float | None = None,
     ) -> PhonebookWriteResponse:
-        """Submit the complete live-confirmed ``update_pb`` object.
+        """Update a contact using the complete WebUI-compatible wire object.
 
-        On tested firmware ACIY.3, isolated physical read-back proves ``mobile``
-        and ``group`` are mutable through this endpoint. ``name``, ``home``,
-        ``office`` and ``email`` are accepted with ``result=0`` but showed no
-        visible update effect relative to their create-time baselines. This
-        helper intentionally exposes the complete evidenced capability instead
-        of hiding those fields; callers that require exact mutation semantics
-        should verify the resulting contact state.
+        ``name`` and ``email`` are encoded with ``UniEncode`` before transport;
+        the remaining text fields are sent unchanged. Callers that require an
+        exact mutation should read the contact back because firmware behavior
+        can still differ by field/version.
         """
 
         _require_nonnegative_int("index", index)
@@ -280,11 +313,11 @@ class PhonebookNamespace:
                     "update_pb": {
                         "location": str(location),
                         "index": str(index),
-                        "name": name,
+                        "name": self.encode_contact_text(name),
                         "mobile": mobile,
                         "home": home,
                         "office": office,
-                        "email": email,
+                        "email": self.encode_contact_text(email),
                         "group": str(group),
                     }
                 },
