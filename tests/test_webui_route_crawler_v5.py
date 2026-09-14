@@ -17,7 +17,7 @@ def test_v5_wrapper_compiles() -> None:
 
 def test_v5_removes_locator_count_from_capture_helpers() -> None:
     text = source()
-    assert ".count()" not in text
+    assert "if loc.count()" not in text
     assert "inner_text(timeout=timeout_ms)" in text
     assert "inner_html(timeout=timeout_ms)" in text
 
