@@ -12,3 +12,9 @@ venv/
 .env.*
 .idea/
 .vscode/
+
+# Local physical-router / WebUI evidence. These files may contain device state,
+# session data or other private values and must not be committed publicly.
+*.har
+firewall_webui_*.txt
+firewall_webui_*.json
