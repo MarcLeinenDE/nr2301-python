@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "generated_from": {
     "date": "2026-09-14",
     "crawler": "webui_routes_v6",
@@ -10,6 +10,16 @@
     "queue_remaining": 0,
     "completed": true,
     "residual_blocked_read_only_multicalls": 4
+  },
+  "transport": {
+    "default_toStringData": true,
+    "rule": "ajaxHandler stringifies numeric values unless the caller explicitly passes toStringData:false",
+    "explicit_false_pages": [
+      "html/firewall_pf.html",
+      "html/firewall_pt.html",
+      "html/firewall_url.html",
+      "html/set_vpn_passthrough.html"
+    ]
   },
   "top_nav": [
     {"label": "NETWORK STATUS", "route": "html/home.html"},
@@ -28,76 +38,120 @@
     {"label": "DMZ Settings", "route": "html/firewall_dmz.html"}
   ],
   "routes": [
-    {"index": 1, "route": "html/home.html", "label": "NETWORK STATUS", "group": "top-nav", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 2, "route": "html/user.html", "label": "USER LIST", "group": "top-nav", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 3, "route": "html/wireless.html", "label": "WI-FI SETTINGS", "group": "top-nav", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 4, "route": "html/module.html", "label": "APP MODULE", "group": "top-nav", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 5, "route": "html/wizard.html", "label": "Wizard", "group": "auxiliary", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 6, "route": "html/set_update.html", "label": "Update", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 7, "route": "html/set_firmware.html", "label": "Firmware update helper", "group": "auxiliary", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 8, "route": "html/set_smsinbox.html", "label": "Messages", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 9, "route": "html/set_pin.html", "label": "PIN Settings", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 10, "route": "html/set_admin.html", "label": "Admin Settings", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 11, "route": "html/set_traffic.html", "label": "Package Settings", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 12, "route": "html/set_wan.html", "label": "WAN (missing/404 route)", "group": "auxiliary", "source_status": 404, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 13, "route": "html/set_connection.html", "label": "Statistics", "group": "app-module/device-status", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 14, "route": "engineering.html", "label": "Engineering", "group": "app-module/device-management", "source_status": 200, "browser_capture": false, "browser_reason": "source-only-engineering-route"},
-    {"index": 15, "route": "html/set_status.html", "label": "Status", "group": "app-module/device-status", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 16, "route": "html/set_net_info.html", "label": "Network Information", "group": "app-module/device-status", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 17, "route": "html/engineer_info.html", "label": "Engineering Network Information", "group": "app-module/device-status", "source_status": 200, "browser_capture": false, "browser_reason": "source-only-engineering-route"},
-    {"index": 18, "route": "html/set_network.html", "label": "Network Settings", "group": "app-module/network-settings", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 19, "route": "html/set_operators.html", "label": "Network Operators", "group": "app-module/network-settings", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 20, "route": "html/set_dhcp.html", "label": "DHCP", "group": "app-module/network-settings", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 21, "route": "html/firewall_ip.html", "label": "Firewall / IP Filter", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 22, "route": "html/set_vpn.html", "label": "VPN", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 23, "route": "html/set_phonebook.html", "label": "Phonebook", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 24, "route": "html/set_config.html", "label": "Configuration Backup", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 25, "route": "html/set_reboot.html", "label": "Device Reboot", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 26, "route": "html/set_diagnosis.html", "label": "Diagnosis", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 27, "route": "html/set_wps.html", "label": "WPS", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 28, "route": "html/set_qos.html", "label": "QoS (hidden/missing route)", "group": "app-module/device-management", "source_status": 404, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 29, "route": "html/set_ddns.html", "label": "DDNS", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 30, "route": "html/set_vpn_passthrough.html", "label": "VPN Passthrough", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 31, "route": "html/set_power_save.html", "label": "Power Save", "group": "app-module/device-management", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 32, "route": "html/engineering.html", "label": "Engineering (missing/404 route)", "group": "app-module/device-management", "source_status": 404, "browser_capture": false, "browser_reason": "source-only-engineering-route"},
-    {"index": 33, "route": "html/firewall_url.html", "label": "Firewall / URL Filter", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 34, "route": "html/firewall_pf.html", "label": "Firewall / Port Forward", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 35, "route": "html/firewall_pt.html", "label": "Firewall / Port Trigger", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 36, "route": "html/firewall_port.html", "label": "Firewall / Port Filter", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 37, "route": "html/firewall_upnp.html", "label": "Firewall / UPnP", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 38, "route": "html/firewall_remote.html", "label": "Firewall / Remote", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"},
-    {"index": 39, "route": "html/firewall_dmz.html", "label": "Firewall / DMZ Settings", "group": "firewall", "source_status": 200, "browser_capture": true, "browser_reason": "ok"}
+    [1,"html/home.html",200,"browser"],
+    [2,"html/user.html",200,"browser"],
+    [3,"html/wireless.html",200,"browser"],
+    [4,"html/module.html",200,"browser"],
+    [5,"html/wizard.html",200,"browser"],
+    [6,"html/set_update.html",200,"browser"],
+    [7,"html/set_firmware.html",200,"browser"],
+    [8,"html/set_smsinbox.html",200,"browser"],
+    [9,"html/set_pin.html",200,"browser"],
+    [10,"html/set_admin.html",200,"browser"],
+    [11,"html/set_traffic.html",200,"browser"],
+    [12,"html/set_wan.html",404,"browser"],
+    [13,"html/set_connection.html",200,"browser"],
+    [14,"engineering.html",200,"source-only"],
+    [15,"html/set_status.html",200,"browser"],
+    [16,"html/set_net_info.html",200,"browser"],
+    [17,"html/engineer_info.html",200,"source-only"],
+    [18,"html/set_network.html",200,"browser"],
+    [19,"html/set_operators.html",200,"browser"],
+    [20,"html/set_dhcp.html",200,"browser"],
+    [21,"html/firewall_ip.html",200,"browser"],
+    [22,"html/set_vpn.html",200,"browser"],
+    [23,"html/set_phonebook.html",200,"browser"],
+    [24,"html/set_config.html",200,"browser"],
+    [25,"html/set_reboot.html",200,"browser"],
+    [26,"html/set_diagnosis.html",200,"browser"],
+    [27,"html/set_wps.html",200,"browser"],
+    [28,"html/set_qos.html",404,"browser"],
+    [29,"html/set_ddns.html",200,"browser"],
+    [30,"html/set_vpn_passthrough.html",200,"browser"],
+    [31,"html/set_power_save.html",200,"browser"],
+    [32,"html/engineering.html",404,"source-only"],
+    [33,"html/firewall_url.html",200,"browser"],
+    [34,"html/firewall_pf.html",200,"browser"],
+    [35,"html/firewall_pt.html",200,"browser"],
+    [36,"html/firewall_port.html",200,"browser"],
+    [37,"html/firewall_upnp.html",200,"browser"],
+    [38,"html/firewall_remote.html",200,"browser"],
+    [39,"html/firewall_dmz.html",200,"browser"]
   ],
   "firewall_contracts": {
     "firewall/set_ping_from_wan": {
-      "request": {"ping_from_wan": {"ping_from_wan_enable": "\"0\" | \"1\""}},
-      "response_success": "firewall.setting_response == 'OK'",
-      "live_status": "shape source-confirmed; exact nested shape not yet physically mutated after discovery"
+      "request": {"ping_from_wan": {"ping_from_wan_enable": "0|1 string"}},
+      "success": "firewall.setting_response == OK",
+      "evidence": "source-confirmed"
     },
     "firewall/set_admin_from_wan": {
-      "request": {"admin_from_wan": {"admin_from_wan_enable": "\"0\" | \"1\""}},
-      "response_success": "firewall.setting_response == 'OK'",
-      "transport_note": "changing admin state schedules router/restart_web_server after 600 ms",
-      "live_status": "shape source-confirmed; exact nested shape not yet physically mutated after discovery"
+      "request": {"admin_from_wan": {"admin_from_wan_enable": "0|1 string"}},
+      "success": "firewall.setting_response == OK",
+      "post_change_action": "router/restart_web_server after 600 ms",
+      "evidence": "source-confirmed"
     },
-    "firewall/ww_read_ip_filter": {"request": {"ww_ip_filter": {"list": ["all"]}}, "transport": "multicall member POST"},
-    "firewall/ww_edit_ip_filter": {"request": {"ww_ip_filter": {"list": [{"ip": "<IPv4 or '0'>", "index": "<0..9>"}]}}, "note": "frontend sends 10 indexed slots; empty slots become string '0'"},
-    "firewall/ww_fw_set_disable_info": {"request": {"ww_ip_filter": {"ip_filter_disable": "\"0\" | \"1\""}}},
-    "firewall/ww_read_port_filter": {"request": {"ww_port_filter": {"list": ["all"]}}, "transport": "multicall member POST"},
-    "firewall/ww_edit_port_filter": {"request": {"ww_port_filter": {"list": [{"port": "<start:end or '0'>", "index": "<0..9>"}]}}, "note": "frontend sends 10 indexed slots"},
-    "firewall/ww_fw_set_port_disable_info": {"request": {"ww_port_filter": {"port_filter_disable": "0 | 1"}}, "note": "native JSON integer"},
-    "firewall/set_port_trigger": {"request_enabled": {"enable": 1, "items": [{"index": "<0..9>", "name": "<string>", "trigger_port": "<string port>", "start_port": "<string port>", "end_port": "<string port>"}]}, "request_disabled": {"enable": 0}, "transport_note": "toStringData:false; enabled form emits 10 indexed slots", "success": "result == 0"},
-    "firewall/set_port_forward": {"request_enabled": {"enable": 1, "items": [{"index": "<0..9>", "name": "<string>", "mac": "<MAC string>", "local_port": "<string port>", "wan_port": "<string port>"}]}, "request_disabled": {"enable": 0}, "transport_note": "toStringData:false; enabled form emits 10 indexed slots"},
-    "firewall/set_url_filter": {"request": "{mode:'disable'|'blacklist'|'whitelist', black_items|white_items:[{value,index}] as applicable}", "transport_note": "toStringData:false; UI has 10 indexed slots"},
-    "firewall/ww_upnp_open_close": {"request": {"ww_upnp": {"upnp_enable": "\"0\" | \"1\""}}},
-    "firewall/fw_set_disable_info": {"request": {"dmz_disable": "\"0\" | \"1\""}},
-    "firewall/fw_edit_dmz_entry": {"request": {"dmz_dest_ip": "<IPv4>"}, "note": "NR2301 WebUI uses fw_edit_dmz_entry and exposes no clear/delete operation"},
-    "firewall/fw_set_vpn_passthrough": {"request": {"pptp": "0 | 1", "l2tp": "0 | 1", "ipsec": "0 | 1"}, "transport_note": "toStringData:false; native JSON integers"}
+    "firewall/ww_read_ip_filter": {
+      "request": {"ww_ip_filter": {"list": ["all"]}},
+      "transport": "multicall member POST"
+    },
+    "firewall/ww_fw_set_disable_info": {
+      "request": {"ww_ip_filter": {"ip_filter_disable": "0|1 string"}}
+    },
+    "firewall/ww_edit_ip_filter": {
+      "request": {"ww_ip_filter": {"list": [{"ip": "IPv4 or 0 string", "index": "0..9 string"}]}},
+      "slot_count": 10,
+      "empty_slot": "0",
+      "wire_note": "default toStringData=true stringifies index"
+    },
+    "firewall/ww_read_port_filter": {
+      "request": {"ww_port_filter": {"list": ["all"]}},
+      "transport": "multicall member POST"
+    },
+    "firewall/ww_fw_set_port_disable_info": {
+      "request": {"ww_port_filter": {"port_filter_disable": "0|1 string"}},
+      "wire_note": "source literal is numeric but default toStringData=true stringifies it"
+    },
+    "firewall/ww_edit_port_filter": {
+      "request": {"ww_port_filter": {"list": [{"port": "start:end or 0 string", "index": "0..9 string"}]}},
+      "slot_count": 10,
+      "empty_slot": "0",
+      "wire_note": "default toStringData=true stringifies index"
+    },
+    "firewall/set_port_trigger": {
+      "request_disabled": {"enable": 0},
+      "request_enabled": {"enable": 1, "items": [{"index": 0, "name": "string", "trigger_port": "string", "start_port": "string", "end_port": "string"}]},
+      "slot_count": 10,
+      "transport": "toStringData:false",
+      "success": "result == 0",
+      "evidence": "non-empty item shape source-confirmed"
+    },
+    "firewall/set_port_forward": {
+      "request_disabled": {"enable": 0},
+      "request_enabled": {"enable": 1, "items": [{"index": 0, "name": "string", "mac": "string", "local_port": "string", "wan_port": "string"}]},
+      "slot_count": 10,
+      "transport": "toStringData:false"
+    },
+    "firewall/set_url_filter": {
+      "request": "mode plus indexed black_items or white_items",
+      "transport": "toStringData:false"
+    },
+    "firewall/ww_upnp_open_close": {
+      "request": {"ww_upnp": {"upnp_enable": "0|1 string"}}
+    },
+    "firewall/fw_set_disable_info": {
+      "request": {"dmz_disable": "0|1 string"}
+    },
+    "firewall/fw_edit_dmz_entry": {
+      "request": {"dmz_dest_ip": "IPv4 string"},
+      "note": "current NR2301 WebUI exposes no clear/delete operation"
+    },
+    "firewall/fw_set_vpn_passthrough": {
+      "request": {"pptp": 1, "l2tp": 1, "ipsec": 1},
+      "transport": "toStringData:false; native JSON integers"
+    }
   },
   "notes": [
     "Raw screenshots/rendered HTML/network logs are intentionally not public.",
-    "engineering.html and html/engineer_info.html are source-only in crawler due Chromium DOM hangs.",
-    "html/set_wan.html, html/set_qos.html and html/engineering.html returned 404 on direct source fetch.",
     "DMZ clear/delete remains unresolved because current NR2301 WebUI exposes no clear/delete action."
   ]
 }
