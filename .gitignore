@@ -18,3 +18,4 @@ venv/
 *.har
 firewall_webui_*.txt
 firewall_webui_*.json
+firewall_webui_autopilot_*/
