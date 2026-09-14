@@ -21,3 +21,5 @@ firewall_webui_*.json
 firewall_webui_autopilot_*/
 webui_inventory_*/
 webui_inventory_*.zip
+webui_routes_*/
+webui_routes_*.zip
