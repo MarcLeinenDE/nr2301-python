@@ -55,7 +55,7 @@ def test_firewall_read_helpers_use_live_verified_get_methods(helper_name, api_me
         ("port_filter", "ww_read_port_filter", "ww_port_filter"),
     ],
 )
-def test_firewall_filter_reads_use_live_verified_empty_list_body(
+def test_firewall_filter_reads_use_complete_list_selector(
     helper_name, api_method, request_key
 ):
     payload = {
@@ -74,7 +74,7 @@ def test_firewall_filter_reads_use_live_verified_empty_list_body(
     assert method == "POST"
     assert kwargs["params"]["path"] == "firewall"
     assert kwargs["params"]["method"] == api_method
-    assert kwargs["json"] == {request_key: {"list": []}}
+    assert kwargs["json"] == {request_key: {"list": ["all"]}}
 
 
 def test_firewall_reads_preserve_raw_values_without_semantic_remapping():

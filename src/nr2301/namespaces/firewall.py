@@ -178,27 +178,27 @@ class FirewallNamespace:
         )
 
     def ip_filter(self, *, timeout: float | None = None) -> FirewallRuleListResponse:
-        """Read the raw IP-filter list using the live-verified empty-list body."""
+        """Read the complete raw IP-filter list using the verified `all` selector."""
 
         return cast(
             FirewallRuleListResponse,
             self._client.call(
                 "firewall",
                 "ww_read_ip_filter",
-                data={"ww_ip_filter": {"list": []}},
+                data={"ww_ip_filter": {"list": ["all"]}},
                 timeout=timeout,
             ),
         )
 
     def port_filter(self, *, timeout: float | None = None) -> FirewallRuleListResponse:
-        """Read the raw port-filter list using the live-verified empty-list body."""
+        """Read the complete raw port-filter list using the verified `all` selector."""
 
         return cast(
             FirewallRuleListResponse,
             self._client.call(
                 "firewall",
                 "ww_read_port_filter",
-                data={"ww_port_filter": {"list": []}},
+                data={"ww_port_filter": {"list": ["all"]}},
                 timeout=timeout,
             ),
         )
