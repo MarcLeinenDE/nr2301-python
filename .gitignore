@@ -19,3 +19,5 @@ venv/
 firewall_webui_*.txt
 firewall_webui_*.json
 firewall_webui_autopilot_*/
+webui_inventory_*/
+webui_inventory_*.zip
