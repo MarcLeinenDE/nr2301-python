@@ -41,6 +41,8 @@ def test_v6_allows_observed_read_only_methods() -> None:
         "get_package_status",
         "get_bat_info",
         "get_updated_status",
+        "stat_get_common_data",
+        "get_runtime_info",
         "get_conn_clients_info",
         "sms.query",
         "sms.list_by_type",
