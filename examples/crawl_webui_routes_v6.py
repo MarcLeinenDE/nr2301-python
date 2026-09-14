@@ -6,9 +6,10 @@ from __future__ import annotations
 v6 keeps the v5 source-driven crawl and engineering-page hardening, but fixes
 an over-broad mutation detector that treated read methods such as
 ``get_updated_status`` as writes merely because their names contained
-``update``.  Browser navigation is still read-only: only POST requests whose
-API method names are recognizably getter/read/query/list operations are
-allowed.  Explicit setters/actions and unknown POST method shapes are blocked.
+``update``. Browser navigation is still read-only: only POST requests whose
+API method names are recognizably getter/read/query/list/status/statistics
+operations are allowed. Explicit setters/actions and unknown POST method
+shapes are blocked.
 """
 
 import json
@@ -28,6 +29,7 @@ READ_METHOD_PATTERNS = (
     re.compile(r"^router_get", re.I),
     re.compile(r"^wifi_get", re.I),
     re.compile(r"^ww_read", re.I),
+    re.compile(r"^stat_get", re.I),
     re.compile(r"^read(?:_|$)", re.I),
     re.compile(r"^query(?:_|$)", re.I),
     re.compile(r"^new_query$", re.I),
