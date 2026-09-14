@@ -58,7 +58,6 @@ def test_contact_text_decoder_rejects_malformed_values():
 def test_groups_uses_bodyless_query_group_get():
     payload = {"result": 0, "grouplist": []}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.groups() == payload
     assert_call(session, http_method="GET", api_method="query_group")
 
@@ -66,67 +65,40 @@ def test_groups_uses_bodyless_query_group_get():
 def test_contacts_by_location_uses_exact_documented_payload():
     payload = {"result": 0, "contactcount": 0, "contactlist": []}
     client, session = authenticated_client(payload)
-
-    assert client.phonebook.contacts_by_location(
-        0,
-        page_capacity=50,
-        page_index=0,
-    ) == payload
-
+    assert client.phonebook.contacts_by_location(0, page_capacity=50, page_index=0) == payload
     assert_call(
         session,
         http_method="POST",
         api_method="getcontactbylocation",
-        data={
-            "getcontactbylocation": {
-                "pagecap": 50,
-                "pageindex": 0,
-                "location": 0,
-            }
-        },
+        data={"getcontactbylocation": {"pagecap": 50, "pageindex": 0, "location": 0}},
     )
 
 
 def test_contacts_by_location_validates_before_network_access():
     client, session = authenticated_client()
-
     with pytest.raises(TypeError, match="location must be an int"):
         client.phonebook.contacts_by_location(True)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="greater than zero"):
         client.phonebook.contacts_by_location(0, page_capacity=0)
     with pytest.raises(ValueError, match="at least zero"):
         client.phonebook.contacts_by_location(0, page_index=-1)
-
     assert session.calls == []
 
 
 def test_contacts_by_group_uses_live_confirmed_string_payload():
     payload = {"result": 0, "contactcount": 0, "contactlist": []}
     client, session = authenticated_client(payload)
-
-    assert client.phonebook.contacts_by_group(
-        7,
-        page_capacity=50,
-        page_index=2,
-    ) == payload
-
+    assert client.phonebook.contacts_by_group(7, page_capacity=50, page_index=2) == payload
     assert_call(
         session,
         http_method="POST",
         api_method="getcontactbygroup",
-        data={
-            "getcontactbygroup": {
-                "group": "7",
-                "pagecap": "50",
-                "pageindex": "2",
-            }
-        },
+        data={"getcontactbygroup": {"group": "7", "pagecap": "50", "pageindex": "2"}},
     )
 
 
 def test_contacts_by_group_validates_before_network_access():
     client, session = authenticated_client()
-
     with pytest.raises(TypeError, match="group must be an int"):
         client.phonebook.contacts_by_group(True)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="group must be at least zero"):
@@ -135,53 +107,33 @@ def test_contacts_by_group_validates_before_network_access():
         client.phonebook.contacts_by_group(0, page_capacity=0)
     with pytest.raises(ValueError, match="at least zero"):
         client.phonebook.contacts_by_group(0, page_index=-1)
-
     assert session.calls == []
 
 
 def test_add_group_uses_exact_live_confirmed_payload():
     payload = {"result": 0, "future": "preserved"}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.add_group("SDK group") == payload
-    assert_call(
-        session,
-        http_method="POST",
-        api_method="addnew_group",
-        data={"name": "SDK group"},
-    )
+    assert_call(session, http_method="POST", api_method="addnew_group", data={"name": "SDK group"})
 
 
 def test_update_group_stringifies_index():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.update_group(7, "Renamed") == payload
-    assert_call(
-        session,
-        http_method="POST",
-        api_method="update_group",
-        data={"name": "Renamed", "index": "7"},
-    )
+    assert_call(session, http_method="POST", api_method="update_group", data={"name": "Renamed", "index": "7"})
 
 
 def test_delete_group_stringifies_index():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.delete_group(7) == payload
-    assert_call(
-        session,
-        http_method="POST",
-        api_method="delete_group",
-        data={"index": "7"},
-    )
+    assert_call(session, http_method="POST", api_method="delete_group", data={"index": "7"})
 
 
 def test_add_contact_encodes_name_and_email_only():
     payload = {"result": 0, "unknown": {"kept": True}}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.add_contact(
         "Synthetic",
         location=0,
@@ -191,7 +143,6 @@ def test_add_contact_encodes_name_and_email_only():
         email="synthetic@example.invalid",
         group=4,
     ) == payload
-
     assert_call(
         session,
         http_method="POST",
@@ -216,7 +167,6 @@ def test_add_contact_encodes_name_and_email_only():
 def test_update_contact_encodes_name_and_email_only():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.update_contact(
         8,
         location=0,
@@ -227,7 +177,6 @@ def test_update_contact_encodes_name_and_email_only():
         email="synthetic@example.invalid",
         group=5,
     ) == payload
-
     assert_call(
         session,
         http_method="POST",
@@ -250,29 +199,33 @@ def test_update_contact_encodes_name_and_email_only():
     )
 
 
-def test_delete_contact_uses_physically_confirmed_single_id_shape():
+def test_delete_contact_delegates_to_confirmed_plural_shape():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
-
     assert client.phonebook.delete_contact(9, location=0) == payload
     assert_call(
         session,
         http_method="POST",
         api_method="delete_pb",
-        data={
-            "delete_pb": {
-                "location": "0",
-                "count": "1",
-                "indexarray": "9",
-            }
-        },
+        data={"delete_pb": {"location": "0", "count": "1", "indexarray": "9"}},
     )
 
 
-def test_move_contact_to_group_uses_scalar_strings():
+def test_delete_contacts_uses_comma_separated_indexes_and_count():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
+    assert client.phonebook.delete_contacts([9, 12, 15], location=0) == payload
+    assert_call(
+        session,
+        http_method="POST",
+        api_method="delete_pb",
+        data={"delete_pb": {"location": "0", "count": "3", "indexarray": "9,12,15"}},
+    )
 
+
+def test_move_contact_to_group_delegates_to_confirmed_plural_shape():
+    payload = {"result": 0}
+    client, session = authenticated_client(payload)
     assert client.phonebook.move_contact_to_group(9, 5) == payload
     assert_call(
         session,
@@ -282,17 +235,21 @@ def test_move_contact_to_group_uses_scalar_strings():
     )
 
 
-def test_copy_all_from_sim_to_local_is_bodyless_get_and_preserves_counts():
-    payload = {
-        "result": 0,
-        "sim_count": 11,
-        "count": 0,
-        "duplicate": 11,
-        "failed": 0,
-        "invalid": 0,
-    }
+def test_move_contacts_to_group_uses_comma_separated_indexes():
+    payload = {"result": 0}
     client, session = authenticated_client(payload)
+    assert client.phonebook.move_contacts_to_group((9, 12, 15), 5) == payload
+    assert_call(
+        session,
+        http_method="POST",
+        api_method="move_contacts_to_group",
+        data={"newgroup": "5", "contacts": "9,12,15"},
+    )
 
+
+def test_copy_all_from_sim_to_local_is_bodyless_get_and_preserves_counts():
+    payload = {"result": 0, "sim_count": 11, "count": 0, "duplicate": 11, "failed": 0, "invalid": 0}
+    client, session = authenticated_client(payload)
     assert client.phonebook.copy_all_from_sim_to_local() == payload
     assert_call(session, http_method="GET", api_method="copyallfromsimtolocal")
 
@@ -303,34 +260,23 @@ def test_copy_all_from_sim_to_local_is_bodyless_get_and_preserves_counts():
         (lambda ns: ns.add_group(123), "name must be a str"),  # type: ignore[arg-type]
         (lambda ns: ns.update_group(True, "x"), "index must be an int"),  # type: ignore[arg-type]
         (lambda ns: ns.delete_group(-1), "index must be at least zero"),
+        (lambda ns: ns.add_contact("x", location=True), "location must be an int"),  # type: ignore[arg-type]
+        (lambda ns: ns.add_contact("x", mobile=123), "mobile must be a str"),  # type: ignore[arg-type]
         (
-            lambda ns: ns.add_contact("x", location=True),  # type: ignore[arg-type]
-            "location must be an int",
-        ),
-        (
-            lambda ns: ns.add_contact("x", mobile=123),  # type: ignore[arg-type]
-            "mobile must be a str",
-        ),
-        (
-            lambda ns: ns.update_contact(
-                1,
-                name="x",
-                mobile="1",
-                group=-1,
-            ),
+            lambda ns: ns.update_contact(1, name="x", mobile="1", group=-1),
             "group must be at least zero",
         ),
-        (lambda ns: ns.delete_contact(True), "index must be an int"),  # type: ignore[arg-type]
-        (
-            lambda ns: ns.move_contact_to_group(1, True),  # type: ignore[arg-type]
-            "group_index must be an int",
-        ),
+        (lambda ns: ns.delete_contact(True), "contact index must be an int"),  # type: ignore[arg-type]
+        (lambda ns: ns.delete_contacts([]), "at least one contact index"),
+        (lambda ns: ns.delete_contacts([1, 1]), "must not contain duplicates"),
+        (lambda ns: ns.delete_contacts([1, True]), "contact index must be an int"),  # type: ignore[list-item]
+        (lambda ns: ns.move_contact_to_group(1, True), "group_index must be an int"),  # type: ignore[arg-type]
+        (lambda ns: ns.move_contacts_to_group([], 1), "at least one contact index"),
+        (lambda ns: ns.move_contacts_to_group([1, 1], 2), "must not contain duplicates"),
     ],
 )
 def test_write_helpers_validate_before_network_access(call, message):
     client, session = authenticated_client()
-
     with pytest.raises((TypeError, ValueError), match=message):
         call(client.phonebook)
-
     assert session.calls == []
