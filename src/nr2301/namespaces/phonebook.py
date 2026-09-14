@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict, cast
 
 if TYPE_CHECKING:
@@ -332,9 +333,20 @@ class PhonebookNamespace:
         location: int = 0,
         timeout: float | None = None,
     ) -> PhonebookWriteResponse:
-        """Delete exactly one contact using the live-confirmed single-ID shape."""
+        """Delete exactly one contact."""
 
-        _require_nonnegative_int("index", index)
+        return self.delete_contacts([index], location=location, timeout=timeout)
+
+    def delete_contacts(
+        self,
+        indexes: Sequence[int],
+        *,
+        location: int = 0,
+        timeout: float | None = None,
+    ) -> PhonebookWriteResponse:
+        """Delete one or more contacts using the confirmed comma-string contract."""
+
+        normalized = _normalize_contact_indexes(indexes)
         _require_nonnegative_int("location", location)
         return cast(
             PhonebookWriteResponse,
@@ -344,8 +356,8 @@ class PhonebookNamespace:
                 data={
                     "delete_pb": {
                         "location": str(location),
-                        "count": "1",
-                        "indexarray": str(index),
+                        "count": str(len(normalized)),
+                        "indexarray": ",".join(str(index) for index in normalized),
                     }
                 },
                 timeout=timeout,
@@ -359,9 +371,24 @@ class PhonebookNamespace:
         *,
         timeout: float | None = None,
     ) -> PhonebookWriteResponse:
-        """Move one contact to one group using the confirmed scalar-string shape."""
+        """Move one contact to one group."""
 
-        _require_nonnegative_int("contact_index", contact_index)
+        return self.move_contacts_to_group(
+            [contact_index],
+            group_index,
+            timeout=timeout,
+        )
+
+    def move_contacts_to_group(
+        self,
+        contact_indexes: Sequence[int],
+        group_index: int,
+        *,
+        timeout: float | None = None,
+    ) -> PhonebookWriteResponse:
+        """Move one or more contacts using the confirmed comma-string contract."""
+
+        normalized = _normalize_contact_indexes(contact_indexes)
         _require_nonnegative_int("group_index", group_index)
         return cast(
             PhonebookWriteResponse,
@@ -370,7 +397,7 @@ class PhonebookNamespace:
                 "move_contacts_to_group",
                 data={
                     "newgroup": str(group_index),
-                    "contacts": str(contact_index),
+                    "contacts": ",".join(str(index) for index in normalized),
                 },
                 timeout=timeout,
             ),
@@ -415,6 +442,19 @@ def _require_positive_int(name: str, value: object) -> None:
         raise TypeError(f"{name} must be an int")
     if value <= 0:
         raise ValueError(f"{name} must be greater than zero")
+
+
+def _normalize_contact_indexes(indexes: Sequence[int]) -> list[int]:
+    if isinstance(indexes, (str, bytes)) or not isinstance(indexes, Sequence):
+        raise TypeError("indexes must be a sequence of ints")
+    normalized = list(indexes)
+    if not normalized:
+        raise ValueError("indexes must contain at least one contact index")
+    for index in normalized:
+        _require_nonnegative_int("contact index", index)
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("indexes must not contain duplicates")
+    return normalized
 
 
 def _validate_contact_fields(

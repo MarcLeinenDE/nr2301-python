@@ -31,11 +31,15 @@ client.phonebook.update_contact(
 )
 
 client.phonebook.delete_contact(index, location=0)
+client.phonebook.delete_contacts([index1, index2], location=0)
 client.phonebook.move_contact_to_group(contact_index, group_index)
+client.phonebook.move_contacts_to_group([index1, index2], group_index)
 client.phonebook.copy_all_from_sim_to_local()
 ```
 
 Together with `groups()`, `contacts_by_location()` and `contacts_by_group()`, this gives the SDK a direct surface for all 11 currently documented methods in the upstream `phonebook` namespace.
+
+The singular delete/move helpers are convenience wrappers over the same physically confirmed plural wire contracts, so serialization is implemented in one place.
 
 ## Contact text codec
 
@@ -75,28 +79,30 @@ Conceptual create request for human-readable `Example` / `example@example.invali
 
 Update adds an `index` field inside `update_pb`. A flat update payload was physically rejected with `result=-5`.
 
-Single-contact deletion remains intentionally singular because the physically confirmed SDK helper sends:
+Delete one or more contacts with a comma-separated scalar string and matching count:
 
 ```json
 {
   "delete_pb": {
     "location": "0",
-    "count": "1",
-    "indexarray": "14"
+    "count": "2",
+    "indexarray": "14,15"
   }
 }
 ```
 
-Related backend source splits `indexarray` on commas, strongly supporting a comma-separated plural representation; physical NR2301 multi-delete validation is tracked separately before a plural helper is frozen.
-
-Single-contact move is the exact confirmed scalar-string representation:
+Move one or more contacts with the same comma-separated scalar representation:
 
 ```json
 {
   "newgroup": "4",
-  "contacts": "14"
+  "contacts": "14,15"
 }
 ```
+
+Both two-contact forms were physically confirmed on ACIY.3 on 2026-09-14. For one contact the same contracts serialize a single index without a comma.
+
+Plural helpers require a non-empty sequence of unique non-negative integer indexes. This deliberately avoids guessing duplicate-index semantics.
 
 ## ACIY.3 create/update semantics after codec correction
 
@@ -132,7 +138,7 @@ Applications should still use read-back when mutation visibility matters instead
 
 ## Physical-test cleanup rule
 
-Phonebook write tests snapshot the pre-run local-contact index set. Any new local index is treated as test-owned and cleanup is complete only after the exact original index set is restored. This is intentionally stronger than matching synthetic names.
+Phonebook write tests snapshot the pre-run local-contact index set. Any new local index is treated as test-owned and cleanup is complete only after the exact original index set is restored. Group-writing tests also restore the original group count/state.
 
 Real names, phone numbers and SIM-contact contents must not be emitted in public logs or fixtures.
 
@@ -147,4 +153,6 @@ The initial public high-level write surface was physically validated on 2026-09-
 
 The codec-correction test `tests/integration/test_phonebook_text_codec.py` later passed **1/1 in 1.02 s**. It physically confirmed WebUI-compatible name create/update behavior including Unicode, characterized email/home/office read-back as above, deleted the synthetic contact, and ended with `FINAL_LOCAL_CONTACT_COUNT = 0` and `FINAL_INDEX_SET_MATCH = True`.
 
-No real contact names, phone numbers or SIM-contact contents were printed or committed during this validation.
+A raw multi-contact campaign on 2026-09-14 confirmed comma-separated two-contact move and delete contracts with exact index/group restoration. The permanent high-level helpers were then exercised together through `tests/integration/test_phonebook_multi_contact.py`: **1/1 passed in 1.93 s**. The test created two synthetic contacts, moved both through `move_contacts_to_group()`, verified both in the target group, deleted both through `delete_contacts()`, verified neither remained, and finished with `FINAL_LOCAL_CONTACT_COUNT = 0`, `FINAL_INDEX_SET_MATCH = True`, and `FINAL_GROUP_COUNT_MATCH = True`.
+
+No real contact names, phone numbers or SIM-contact contents were printed or committed during validation.
