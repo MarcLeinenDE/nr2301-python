@@ -153,6 +153,6 @@ The initial public high-level write surface was physically validated on 2026-09-
 
 The codec-correction test `tests/integration/test_phonebook_text_codec.py` later passed **1/1 in 1.02 s**. It physically confirmed WebUI-compatible name create/update behavior including Unicode, characterized email/home/office read-back as above, deleted the synthetic contact, and ended with `FINAL_LOCAL_CONTACT_COUNT = 0` and `FINAL_INDEX_SET_MATCH = True`.
 
-A raw multi-contact campaign on 2026-09-14 then confirmed comma-separated two-contact move and delete contracts with exact index/group restoration. `tests/integration/test_phonebook_multi_contact.py` is the corresponding high-level SDK verification for the permanent plural helpers.
+A raw multi-contact campaign on 2026-09-14 confirmed comma-separated two-contact move and delete contracts with exact index/group restoration. The permanent high-level helpers were then exercised together through `tests/integration/test_phonebook_multi_contact.py`: **1/1 passed in 1.93 s**. The test created two synthetic contacts, moved both through `move_contacts_to_group()`, verified both in the target group, deleted both through `delete_contacts()`, verified neither remained, and finished with `FINAL_LOCAL_CONTACT_COUNT = 0`, `FINAL_INDEX_SET_MATCH = True`, and `FINAL_GROUP_COUNT_MATCH = True`.
 
 No real contact names, phone numbers or SIM-contact contents were printed or committed during validation.
