@@ -263,7 +263,7 @@ def test_port_forward_enabled_write_uses_native_indices_and_five_slots():
             "local_port": "",
             "wan_port": "",
         }
-        for i in range(10)
+        for i in range(5)
     ]
     expected_items[1] = item
     assert_single_post(
