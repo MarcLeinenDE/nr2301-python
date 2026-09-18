@@ -140,7 +140,12 @@ class LANNamespace:
             raise ProtocolError(
                 "router/router_get_dhcp_settings response member is not an object"
             )
-        return dict(member)
+        data = member.get("data")
+        if not isinstance(data, Mapping):
+            raise ProtocolError(
+                "router/router_get_dhcp_settings response member has no data object"
+            )
+        return dict(data)
 
     def static_reservations(self, *, timeout: float | None = None) -> dict[str, Any]:
         """Return the raw DHCP static-reservation response.
