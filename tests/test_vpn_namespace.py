@@ -224,6 +224,24 @@ def test_set_profile_active_writes_exact_body_and_verifies_active_index():
     assert kwargs["json"] == {"index": "4", "vpn_active": "active"}
 
 
+def test_set_profile_active_accepts_disable_no_active_sentinel():
+    item = profile("4")
+    client, session = authenticated_client(
+        profile_response(item, enabled="disable", active_index="disable"),
+        {"result": 0},
+        profile_response(item, enabled="enable", active_index="4"),
+    )
+
+    # The helper itself only owns the profile-active endpoint; the synthetic
+    # final response models a firmware state where the profile becomes visible
+    # as active.
+    result = client.vpn.set_profile_active("4", True)
+
+    assert result["vpn_client_active_index"] == "4"
+    _, _, kwargs = session.calls[1]
+    assert kwargs["json"] == {"index": "4", "vpn_active": "active"}
+
+
 def test_set_profile_inactive_accepts_numeric_minus_one_sentinel():
     item = profile("4")
     client, session = authenticated_client(
