@@ -24,6 +24,7 @@ def authenticated_client(*payloads):
         ("wan_info", "get_current_wan_info"),
         ("available_network_modes", "get_available_network_mode"),
         ("network_settings", "get_network_settings"),
+        ("wan_settings", "get_wan_settings"),
     ],
 )
 def test_mobile_helpers_use_live_verified_get_methods(helper_name, api_method):
@@ -37,6 +38,20 @@ def test_mobile_helpers_use_live_verified_get_methods(helper_name, api_method):
     assert method == "GET"
     assert kwargs["params"]["path"] == "cm"
     assert kwargs["params"]["method"] == api_method
+
+
+def test_search_networks_uses_live_verified_operator_scan():
+    payload = {"network_list": [], "result": 0}
+    client, session = authenticated_client(payload)
+
+    assert client.mobile.search_networks() == payload
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "util_wan"
+    assert kwargs["params"]["method"] == "search_network"
+    assert "json" not in kwargs
 
 
 def test_network_select_mode_uses_live_verified_util_wan_getter():
