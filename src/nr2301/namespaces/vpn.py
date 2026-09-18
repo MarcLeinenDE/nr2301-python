@@ -361,7 +361,7 @@ class VPNNamespace:
     @classmethod
     def _active_index(cls, response: Mapping[str, Any]) -> str | None:
         value = response.get("vpn_client_active_index")
-        if value in {None, "", "-1", -1}:
+        if value in {None, "", "-1", -1, "disable"}:
             return None
         return cls._normalize_index(value)
 
