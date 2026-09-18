@@ -166,7 +166,12 @@ def _wait_final_state(
     last_state = None
 
     for _ in range(attempts):
-        last = _recover(router, attempts=1, delay=0)
+        try:
+            last = _recover(router, attempts=4, delay=delay)
+        except AssertionError:
+            time.sleep(delay)
+            continue
+
         state = _connected(last)
         last_state = state
         _trace_state(router, label, last)
