@@ -198,7 +198,7 @@ def test_set_dns_raises_api_error_when_readback_does_not_match():
 
 def test_legacy_dhcp_settings_uses_verified_one_member_multicall():
     member = {"dhcp": {"disabled": "0", "limit": "10"}}
-    client, session = authenticated_client([({"responses": [member]}, 200)])
+    client, session = authenticated_client([({"responses": [{"data": member}]}, 200)])
 
     assert client.lan.legacy_dhcp_settings() == member
 
@@ -213,7 +213,13 @@ def test_legacy_dhcp_settings_uses_verified_one_member_multicall():
 
 @pytest.mark.parametrize(
     "payload",
-    [{}, {"responses": []}, {"responses": ["not-an-object"]}],
+    [
+        {},
+        {"responses": []},
+        {"responses": ["not-an-object"]},
+        {"responses": [{}]},
+        {"responses": [{"data": "not-an-object"}]},
+    ],
 )
 def test_legacy_dhcp_settings_rejects_malformed_multicall(payload):
     client, _ = authenticated_client([(payload, 200)])
