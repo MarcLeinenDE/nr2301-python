@@ -110,10 +110,17 @@ class MobileNamespace:
 
         return cast(CellInfo, self._client.call("cm", "get_cell_info"))
 
-    def wan_info(self) -> CurrentWANInfo:
+    def wan_info(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> CurrentWANInfo:
         """Return current WAN addressing and link/Internet status information."""
 
-        return cast(CurrentWANInfo, self._client.call("cm", "get_current_wan_info"))
+        return cast(
+            CurrentWANInfo,
+            self._client.call("cm", "get_current_wan_info", timeout=timeout),
+        )
 
     def available_network_modes(
         self,
@@ -173,6 +180,172 @@ class MobileNamespace:
                 "get_network_select_mode",
                 timeout=timeout,
             ),
+        )
+
+    def disconnect_mobile(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Invoke the live-verified body-less mobile-WAN disconnect action.
+
+        This operation can interrupt WAN and management connectivity. Callers
+        that need recovery/read-back should prefer `reconnect_mobile()`.
+        """
+
+        return cast(
+            dict[str, Any],
+            self._client.call("cm", "disconnect", timeout=timeout),
+        )
+
+    def connect_mobile(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Invoke the live-verified body-less mobile-WAN connect action."""
+
+        return cast(
+            dict[str, Any],
+            self._client.call("cm", "connect", timeout=timeout),
+        )
+
+    def reconnect_mobile(
+        self,
+        *,
+        action_timeout: float = 10.0,
+        recovery_attempts: int = 20,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> CurrentWANInfo:
+        """Disconnect then reconnect mobile WAN and require connected read-back.
+
+        A dropped HTTP response is treated as inconclusive. The helper attempts
+        re-authentication/recovery and accepts success only after
+        `cm/get_current_wan_info` reports at least one connected context.
+        """
+
+        self._validate_recovery_options(
+            action_timeout=action_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        try:
+            self.disconnect_mobile(timeout=action_timeout)
+        except (TransportError, ProtocolError):
+            pass
+
+        if recovery_delay:
+            time.sleep(recovery_delay)
+
+        try:
+            self._ensure_session(recovery_timeout)
+            self.connect_mobile(timeout=action_timeout)
+        except (TransportError, ProtocolError):
+            pass
+
+        return self._wait_for_wan_connection(
+            expected_connected=True,
+            method_id="cm/connect",
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+    def select_network(
+        self,
+        network_param: str,
+        *,
+        expected_mode: str | None = None,
+        action_timeout: float = 30.0,
+        recovery_attempts: int = 20,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> NetworkSelectMode:
+        """Select a scan/frontend-supplied network parameter and verify recovery.
+
+        `"auto"` is the physically verified automatic-selection token. Manual
+        values must come from the operator scan/frontend contract; this helper
+        deliberately does not synthesize PLMN/operator identifiers.
+
+        If `expected_mode` is omitted for `network_param="auto"`, the helper
+        requires `nw_sel_mode == "auto"`. For other parameters the raw
+        post-recovery selection-mode response is returned unless the caller
+        supplies an explicit expected mode.
+        """
+
+        if not isinstance(network_param, str):
+            raise TypeError("network_param must be a str")
+        if not network_param.strip():
+            raise ValueError("network_param must not be empty")
+        if expected_mode is not None:
+            if not isinstance(expected_mode, str):
+                raise TypeError("expected_mode must be a str or None")
+            if not expected_mode:
+                raise ValueError("expected_mode must not be empty")
+        elif network_param == "auto":
+            expected_mode = "auto"
+
+        self._validate_recovery_options(
+            action_timeout=action_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        write_response: dict[str, Any] | None = None
+        write_error: NR2301Error | None = None
+        try:
+            write_response = self._client.call(
+                "util_wan",
+                "select_network",
+                data={"network_param": network_param},
+                timeout=action_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_response: NetworkSelectMode | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                self._ensure_session(recovery_timeout)
+                current = self.network_select_mode(timeout=recovery_timeout)
+                last_response = current
+                actual = current.get("nw_sel_mode")
+                if not isinstance(actual, str) or not actual:
+                    raise ProtocolError(
+                        "util_wan/get_network_select_mode returned invalid nw_sel_mode"
+                    )
+                if expected_mode is None or actual == expected_mode:
+                    return current
+            except NR2301Error as exc:
+                last_error = exc
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "network_param": network_param,
+            "expected_mode": expected_mode,
+            "actual_mode": (
+                last_response.get("nw_sel_mode")
+                if last_response is not None
+                else None
+            ),
+            "write_response": write_response,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+
+        raise APIError(
+            "network selection could not be verified after recovery",
+            method_id="util_wan/select_network",
+            response=details,
         )
 
     def network_settings(
@@ -327,6 +500,102 @@ class MobileNamespace:
                 f"cm/{method} multicall response member is not a JSON object"
             )
         return dict(member)
+
+    def _wait_for_wan_connection(
+        self,
+        *,
+        expected_connected: bool,
+        method_id: str,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> CurrentWANInfo:
+        last_info: CurrentWANInfo | None = None
+        last_error: NR2301Error | None = None
+
+        for attempt in range(recovery_attempts):
+            try:
+                self._ensure_session(recovery_timeout)
+                info = self.wan_info(timeout=recovery_timeout)
+                last_info = info
+                if self._wan_connected(info) == expected_connected:
+                    return info
+            except NR2301Error as exc:
+                last_error = exc
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected_connected": expected_connected,
+            "actual_connected": (
+                self._wan_connected(last_info) if last_info is not None else None
+            ),
+        }
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "mobile WAN state could not be verified after recovery",
+            method_id=method_id,
+            response=details,
+        )
+
+    def _ensure_session(self, timeout: float) -> None:
+        try:
+            self.wan_info(timeout=timeout)
+            return
+        except NR2301Error:
+            if self._client.password is None:
+                raise
+        self._client.login()
+
+    @staticmethod
+    def _wan_connected(response: Mapping[str, Any]) -> bool:
+        contexts = response.get("contextlist")
+        if not isinstance(contexts, list) or not contexts:
+            raise ProtocolError(
+                "cm/get_current_wan_info did not return a non-empty contextlist"
+            )
+        states: list[int] = []
+        for item in contexts:
+            if not isinstance(item, Mapping):
+                raise ProtocolError(
+                    "cm/get_current_wan_info returned a non-object context"
+                )
+            value = item.get("connection_status")
+            if isinstance(value, bool):
+                raise ProtocolError(
+                    "cm/get_current_wan_info returned invalid connection_status"
+                )
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ProtocolError(
+                    "cm/get_current_wan_info returned invalid connection_status"
+                ) from exc
+            if numeric not in {0, 1}:
+                raise ProtocolError(
+                    "cm/get_current_wan_info returned unknown connection_status"
+                )
+            states.append(numeric)
+        return any(state == 1 for state in states)
+
+    @staticmethod
+    def _validate_recovery_options(
+        *,
+        action_timeout: float,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> None:
+        if action_timeout <= 0:
+            raise ValueError("action_timeout must be greater than zero")
+        if recovery_attempts <= 0:
+            raise ValueError("recovery_attempts must be greater than zero")
+        if recovery_delay < 0:
+            raise ValueError("recovery_delay must not be negative")
+        if recovery_timeout <= 0:
+            raise ValueError("recovery_timeout must be greater than zero")
 
     def _set_string_setting(
         self,
