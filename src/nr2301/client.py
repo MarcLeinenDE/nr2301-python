@@ -11,6 +11,7 @@ import requests
 from .auth import challenge_response, generate_user_id, login_result_text
 from .exceptions import AuthenticationError, ProtocolError
 from .namespaces import (
+    DDNSNamespace,
     DeviceNamespace,
     FirewallNamespace,
     LANNamespace,
@@ -20,6 +21,7 @@ from .namespaces import (
     SIMNamespace,
     SMSNamespace,
     StatisticsNamespace,
+    TR069Namespace,
     VersionNamespace,
     WiFiNamespace,
 )
@@ -50,6 +52,7 @@ class NR2301Client:
         # transport remains available for every documented API method.
         self.version = VersionNamespace(self)
         self.device = DeviceNamespace(self)
+        self.ddns = DDNSNamespace(self)
         self.maintenance = MaintenanceNamespace(self)
         self.mobile = MobileNamespace(self)
         self.sim = SIMNamespace(self)
@@ -58,6 +61,7 @@ class NR2301Client:
         self.wifi = WiFiNamespace(self)
         self.sms = SMSNamespace(self)
         self.statistics = StatisticsNamespace(self)
+        self.tr069 = TR069Namespace(self)
         self.phonebook = PhonebookNamespace(self)
         self.package = PackageNamespace(self)
         self.ota = OTANamespace(self)
