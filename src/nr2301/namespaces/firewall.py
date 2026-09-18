@@ -536,6 +536,8 @@ def _port_trigger_slots(
 def _port_forward_slots(
     items: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
+    # The physical NR2301 WebUI exposes five Port Forward slots. Keep this
+    # distinct from Port Trigger, which uses ten slots.
     slots: list[dict[str, object]] = [
         {
             "index": index,
@@ -544,12 +546,13 @@ def _port_forward_slots(
             "local_port": "",
             "wan_port": "",
         }
-        for index in range(10)
+        for index in range(5)
     ]
     _populate_indexed_slots(
         slots,
         items,
         fields=("name", "mac", "local_port", "wan_port"),
+        limit=5,
     )
     return slots
 
@@ -559,9 +562,10 @@ def _populate_indexed_slots(
     items: Sequence[Mapping[str, object]],
     *,
     fields: Sequence[str],
+    limit: int = 10,
 ) -> None:
-    if len(items) > 10:
-        raise ValueError("NR2301 rule lists support at most 10 slots")
+    if len(items) > limit:
+        raise ValueError(f"NR2301 rule list supports at most {limit} slots")
     used: set[int] = set()
     for item in items:
         if "index" not in item:
@@ -570,8 +574,8 @@ def _populate_indexed_slots(
             index = int(item["index"])
         except (TypeError, ValueError) as exc:
             raise ValueError(f"invalid rule index: {item['index']!r}") from exc
-        if not 0 <= index < 10:
-            raise ValueError("rule index must be between 0 and 9")
+        if not 0 <= index < limit:
+            raise ValueError(f"rule index must be between 0 and {limit - 1}")
         if index in used:
             raise ValueError(f"duplicate rule index: {index}")
         used.add(index)
