@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
@@ -34,4 +34,17 @@ class VPNNamespace:
                 "get_vpn_client_connect_status",
                 timeout=timeout,
             ),
+        )
+
+    def profiles(self, *, timeout: float | None = None) -> dict[str, Any]:
+        """Return the raw configured VPN client profiles.
+
+        The response may contain VPN passwords and L2TP/IPsec pre-shared keys.
+        Applications must treat the returned object as secret-bearing data and
+        avoid routine logging or public diagnostics.
+        """
+
+        return cast(
+            dict[str, Any],
+            self._client.call("cm", "get_vpn_clients", timeout=timeout),
         )
