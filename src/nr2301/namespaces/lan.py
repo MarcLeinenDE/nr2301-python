@@ -110,6 +110,38 @@ class LANNamespace:
         )
         return cast(DHCPSettings, dict(self._extract_dhcp(response)))
 
+    def legacy_dhcp_settings(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Return `router_get_dhcp_settings` through its verified multicall form.
+
+        This older getter is distinct from `router_get_dhcp_settings_comb`.
+        Preserve its complete response because the firmware exposes a slightly
+        different DHCP field set.
+        """
+
+        payload = self._client.multicall(
+            [{"path": "router", "method": "router_get_dhcp_settings"}],
+            timeout=timeout,
+        )
+        if not isinstance(payload, Mapping):
+            raise ProtocolError(
+                "router/router_get_dhcp_settings multicall did not return an object"
+            )
+        responses = payload.get("responses")
+        if not isinstance(responses, list) or len(responses) != 1:
+            raise ProtocolError(
+                "router/router_get_dhcp_settings multicall did not return exactly one member"
+            )
+        member = responses[0]
+        if not isinstance(member, Mapping):
+            raise ProtocolError(
+                "router/router_get_dhcp_settings response member is not an object"
+            )
+        return dict(member)
+
     def static_reservations(self, *, timeout: float | None = None) -> dict[str, Any]:
         """Return the raw DHCP static-reservation response.
 
