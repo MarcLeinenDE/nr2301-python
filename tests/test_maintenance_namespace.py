@@ -123,3 +123,141 @@ def test_set_timed_reboot_raises_when_semantic_readback_does_not_match():
         "time": "03:30",
         "repeat": 62,
     }
+
+
+def test_backup_config_uses_bodyless_get_and_requires_rc_zero():
+    payload = {
+        "rc": 0,
+        "path": "/var/volatile/config_bak/config_bak.bin",
+    }
+    client, session = authenticated_client(payload)
+
+    assert client.maintenance.backup_config() == payload
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "router"
+    assert kwargs["params"]["method"] == "router_backup_config"
+    assert "json" not in kwargs
+
+
+def test_backup_config_rejects_nonzero_rc_without_exposing_unknown_fields():
+    client, _ = authenticated_client({"rc": 7, "path": "secret-bearing-value"})
+
+    with pytest.raises(APIError) as exc_info:
+        client.maintenance.backup_config()
+
+    assert exc_info.value.method_id == "router/router_backup_config"
+    assert exc_info.value.response == {"rc": 7}
+
+
+def test_restart_web_server_accepts_empty_action_body_then_verifies_runtime():
+    client, session = authenticated_client(
+        {"boot_time": 100, "result": 0},
+        ValueError("empty response"),
+        {"boot_time": 102, "result": 0},
+    )
+
+    result = client.maintenance.restart_web_server(
+        recovery_attempts=1,
+        recovery_delay=0,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_before"] == 100
+    assert result["boot_time_after"] == 102
+    assert result["action_error"] == "ProtocolError"
+    assert result["outage_observed"] is False
+
+    assert [call[2]["params"]["method"] for call in session.calls] == [
+        "get_runtime_info",
+        "restart_web_server",
+        "get_runtime_info",
+    ]
+    assert session.calls[1][0] == "GET"
+    assert "json" not in session.calls[1][2]
+
+
+def test_restart_web_server_rejects_unexpected_full_router_reboot():
+    client, _ = authenticated_client(
+        {"boot_time": 1000, "result": 0},
+        ValueError("empty response"),
+        {"boot_time": 3, "result": 0},
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.maintenance.restart_web_server(
+            recovery_attempts=1,
+            recovery_delay=0,
+            initial_delay=0,
+        )
+
+    assert exc_info.value.method_id == "router/restart_web_server"
+    assert exc_info.value.response["boot_time_before"] == 1000
+    assert exc_info.value.response["boot_time_after"] == 3
+
+
+def test_reboot_uses_bodyless_get_and_requires_boot_time_reset():
+    client, session = authenticated_client(
+        {"boot_time": 9000, "result": 0},
+        ValueError("connection lost during reboot"),
+        {"boot_time": 4, "result": 0},
+    )
+
+    result = client.maintenance.reboot(
+        recovery_attempts=1,
+        recovery_delay=0,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_before"] == 9000
+    assert result["boot_time_after"] == 4
+    assert result["action_error"] == "ProtocolError"
+
+    assert [call[2]["params"]["method"] for call in session.calls] == [
+        "get_runtime_info",
+        "router_call_reboot",
+        "get_runtime_info",
+    ]
+    assert session.calls[1][0] == "GET"
+    assert "json" not in session.calls[1][2]
+
+
+def test_reboot_raises_when_runtime_recovers_without_boot_reset():
+    client, _ = authenticated_client(
+        {"boot_time": 9000, "result": 0},
+        {"result": 0},
+        {"boot_time": 9002, "result": 0},
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.maintenance.reboot(
+            recovery_attempts=1,
+            recovery_delay=0,
+            initial_delay=0,
+        )
+
+    assert exc_info.value.method_id == "router/router_call_reboot"
+    assert exc_info.value.response["boot_time_before"] == 9000
+    assert exc_info.value.response["boot_time_after"] == 9002
+
+
+@pytest.mark.parametrize(
+    ("method_name", "kwargs"),
+    [
+        ("restart_web_server", {"action_timeout": 0}),
+        ("restart_web_server", {"recovery_attempts": 0}),
+        ("restart_web_server", {"recovery_delay": -1}),
+        ("restart_web_server", {"recovery_timeout": 0}),
+        ("restart_web_server", {"initial_delay": -1}),
+        ("reboot", {"action_timeout": 0}),
+    ],
+)
+def test_disruptive_maintenance_rejects_invalid_recovery_options(method_name, kwargs):
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError):
+        getattr(client.maintenance, method_name)(**kwargs)
+
+    assert session.calls == []
