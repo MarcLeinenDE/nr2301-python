@@ -242,14 +242,14 @@ def test_port_trigger_rejects_duplicate_or_out_of_range_indices():
     assert session.calls == []
 
 
-def test_port_forward_enabled_write_uses_native_indices_and_ten_slots():
+def test_port_forward_enabled_write_uses_native_indices_and_five_slots():
     payload = {"result": 0}
     client, session = authenticated_client(payload)
 
     item = {
         "index": 1,
         "name": "example",
-        "mac": "02-00-00-00-00-01",
+        "mac": "02:00:00:00:00:01",
         "local_port": "65500",
         "wan_port": "65500",
     }
@@ -271,6 +271,21 @@ def test_port_forward_enabled_write_uses_native_indices_and_ten_slots():
         "set_port_forward",
         {"enable": 1, "items": expected_items},
     )
+
+
+def test_port_forward_rejects_more_than_five_slots_or_out_of_range_index():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="at most 5"):
+        client.firewall.set_port_forward(
+            True,
+            items=[{"index": i} for i in range(6)],
+        )
+
+    with pytest.raises(ValueError, match="between 0 and 4"):
+        client.firewall.set_port_forward(True, items=[{"index": 5}])
+
+    assert session.calls == []
 
 
 def test_port_forward_disabled_form_is_enable_only():
