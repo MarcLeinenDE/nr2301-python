@@ -550,7 +550,14 @@ class MobileNamespace:
         self._client.login()
 
     @staticmethod
-    def _wan_connected(response: Mapping[str, Any]) -> bool:
+    def _wan_connected(response: Mapping[str, Any]) -> bool | None:
+        """Return final WAN-link state, or None while firmware is transitional.
+
+        ACIY.3 physically returned connection_status=2 immediately after
+        `cm/connect`. The exact frontend label for 2 is not reconstructed, so
+        polling treats it as non-final instead of guessing a semantic name.
+        """
+
         contexts = response.get("contextlist")
         if not isinstance(contexts, list) or not contexts:
             raise ProtocolError(
@@ -573,12 +580,17 @@ class MobileNamespace:
                 raise ProtocolError(
                     "cm/get_current_wan_info returned invalid connection_status"
                 ) from exc
-            if numeric not in {0, 1}:
+            if numeric not in {0, 1, 2}:
                 raise ProtocolError(
                     "cm/get_current_wan_info returned unknown connection_status"
                 )
             states.append(numeric)
-        return any(state == 1 for state in states)
+
+        if any(state == 1 for state in states):
+            return True
+        if any(state == 2 for state in states):
+            return None
+        return False
 
     @staticmethod
     def _validate_recovery_options(
