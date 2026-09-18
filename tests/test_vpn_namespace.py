@@ -30,3 +30,21 @@ def test_vpn_status_preserves_unknown_raw_status():
     client, _ = authenticated_client(payload)
 
     assert client.vpn.status() == payload
+
+
+def test_vpn_profiles_uses_live_verified_getter():
+    payload = {
+        "result": 0,
+        "vpn_client_enable": "disable",
+        "vpn_clients": [],
+    }
+    client, session = authenticated_client(payload)
+
+    assert client.vpn.profiles() == payload
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "cm"
+    assert kwargs["params"]["method"] == "get_vpn_clients"
+    assert "json" not in kwargs
