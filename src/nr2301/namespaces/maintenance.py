@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-from ..exceptions import APIError, ProtocolError
+from ..exceptions import APIError, NR2301Error, ProtocolError, TransportError
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
@@ -19,6 +20,16 @@ class TimedRebootSettings(TypedDict, total=False):
     repeat: int
     result: int
     time: str
+
+
+class MaintenanceRecoveryResult(TypedDict, total=False):
+    """SDK-level recovery evidence for disruptive maintenance actions."""
+
+    action_error: str
+    action_response: dict[str, Any]
+    boot_time_after: int
+    boot_time_before: int
+    outage_observed: bool
 
 
 class MaintenanceNamespace:
@@ -42,6 +53,211 @@ class MaintenanceNamespace:
                 "router_get_timed_reboot",
                 timeout=timeout,
             ),
+        )
+
+    def backup_config(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Run the legacy configuration-backup action.
+
+        This API method creates/returns router-side backup metadata; it does
+        **not** download the current stock-UI backup file from `/file.cgi`.
+        Backup responses/files can expose secrets and must not be logged or
+        committed without explicit sanitization.
+        """
+
+        response = self._client.call(
+            "router",
+            "router_backup_config",
+            timeout=timeout,
+        )
+        rc = response.get("rc")
+        if isinstance(rc, bool):
+            raise ProtocolError(
+                "router/router_backup_config returned invalid boolean rc"
+            )
+        try:
+            numeric_rc = int(rc)
+        except (TypeError, ValueError) as exc:
+            raise ProtocolError(
+                "router/router_backup_config returned invalid rc"
+            ) from exc
+        if numeric_rc != 0:
+            raise APIError(
+                "router/router_backup_config did not report rc=0",
+                method_id="router/router_backup_config",
+                response={"rc": rc},
+            )
+        return response
+
+    def restart_web_server(
+        self,
+        *,
+        action_timeout: float = 10.0,
+        recovery_attempts: int = 30,
+        recovery_delay: float = 0.5,
+        recovery_timeout: float = 3.0,
+        initial_delay: float = 0.5,
+    ) -> MaintenanceRecoveryResult:
+        """Restart only the management web server and verify recovery.
+
+        ACIY.3 was physically observed returning HTTP 200 with an empty body,
+        which the strict low-level JSON transport surfaces as `ProtocolError`.
+        That is treated as inconclusive action-response loss; management
+        recovery and a non-resetting router `boot_time` decide success.
+        """
+
+        self._validate_recovery_args(
+            action_timeout=action_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+            initial_delay=initial_delay,
+        )
+        before = self._read_boot_time(timeout=recovery_timeout)
+
+        action_response: dict[str, Any] | None = None
+        action_error: NR2301Error | None = None
+        try:
+            action_response = self._client.call(
+                "router",
+                "restart_web_server",
+                timeout=action_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            action_error = exc
+
+        if initial_delay:
+            time.sleep(initial_delay)
+
+        after, outage_observed = self._recover_boot_time(
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+        if after < before:
+            raise APIError(
+                "restart_web_server recovered after a full router reboot",
+                method_id="router/restart_web_server",
+                response={
+                    "boot_time_before": before,
+                    "boot_time_after": after,
+                    "outage_observed": outage_observed,
+                    "action_error": (
+                        type(action_error).__name__
+                        if action_error is not None
+                        else None
+                    ),
+                },
+            )
+
+        result: MaintenanceRecoveryResult = {
+            "boot_time_before": before,
+            "boot_time_after": after,
+            "outage_observed": outage_observed,
+        }
+        if action_response is not None:
+            result["action_response"] = action_response
+        if action_error is not None:
+            result["action_error"] = type(action_error).__name__
+        return result
+
+    def reboot(
+        self,
+        *,
+        action_timeout: float = 5.0,
+        recovery_attempts: int = 90,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+        initial_delay: float = 1.0,
+    ) -> MaintenanceRecoveryResult:
+        """Reboot the router through the body-less GET frontend variant.
+
+        The action is deliberately considered successful only after management
+        recovers and router `boot_time` proves a new boot. A timeout or lost
+        HTTP response during the reboot action is expected/inconclusive.
+
+        Upstream also records a POST frontend variant. This helper currently
+        uses only the body-less GET variant and remains physically gated until
+        that transport is reconfirmed by the production SDK.
+        """
+
+        self._validate_recovery_args(
+            action_timeout=action_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+            initial_delay=initial_delay,
+        )
+        before = self._read_boot_time(timeout=recovery_timeout)
+
+        action_response: dict[str, Any] | None = None
+        action_error: NR2301Error | None = None
+        try:
+            action_response = self._client.call(
+                "router",
+                "router_call_reboot",
+                timeout=action_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            action_error = exc
+
+        started = time.monotonic()
+        if initial_delay:
+            time.sleep(initial_delay)
+
+        last_boot: int | None = None
+        last_error: NR2301Error | None = None
+        outage_observed = False
+
+        for attempt in range(recovery_attempts):
+            try:
+                current = self._read_boot_time(timeout=recovery_timeout)
+                last_boot = current
+                elapsed = time.monotonic() - started
+
+                # Strong evidence is a direct uptime reset. For a reboot issued
+                # very shortly after initial boot, an observed outage plus an
+                # uptime bounded by elapsed recovery time is also sufficient.
+                if current < before or (
+                    outage_observed
+                    and current <= int(elapsed) + 10
+                    and before <= int(elapsed) + 10
+                ):
+                    result: MaintenanceRecoveryResult = {
+                        "boot_time_before": before,
+                        "boot_time_after": current,
+                        "outage_observed": outage_observed,
+                    }
+                    if action_response is not None:
+                        result["action_response"] = action_response
+                    if action_error is not None:
+                        result["action_error"] = type(action_error).__name__
+                    return result
+            except NR2301Error as exc:
+                outage_observed = True
+                last_error = exc
+                last_error = self._try_relogin(last_error)
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "boot_time_before": before,
+            "boot_time_after": last_boot,
+            "outage_observed": outage_observed,
+        }
+        if action_error is not None:
+            details["action_error"] = type(action_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+
+        raise APIError(
+            "router reboot could not be verified by management recovery and boot_time reset",
+            method_id="router/router_call_reboot",
+            response=details,
         )
 
     def set_timed_reboot(
@@ -95,6 +311,78 @@ class MaintenanceNamespace:
                 response={"expected": expected, "actual": actual},
             )
         return verified
+
+    def _read_boot_time(self, *, timeout: float) -> int:
+        runtime = self._client.device.runtime(timeout=timeout)
+        value = runtime.get("boot_time")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ProtocolError(
+                "router/get_runtime_info did not return a usable boot_time"
+            )
+        return value
+
+    def _recover_boot_time(
+        self,
+        *,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> tuple[int, bool]:
+        outage_observed = False
+        last_error: NR2301Error | None = None
+
+        for attempt in range(recovery_attempts):
+            try:
+                return (
+                    self._read_boot_time(timeout=recovery_timeout),
+                    outage_observed,
+                )
+            except NR2301Error as exc:
+                outage_observed = True
+                last_error = exc
+                last_error = self._try_relogin(last_error)
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        raise APIError(
+            "router management did not recover after maintenance action",
+            response={
+                "outage_observed": outage_observed,
+                "last_recovery_error": (
+                    type(last_error).__name__ if last_error is not None else None
+                ),
+            },
+        )
+
+    def _try_relogin(self, previous_error: NR2301Error) -> NR2301Error:
+        if self._client.password is None:
+            return previous_error
+        try:
+            self._client.login()
+        except NR2301Error as login_exc:
+            return login_exc
+        return previous_error
+
+    @staticmethod
+    def _validate_recovery_args(
+        *,
+        action_timeout: float,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+        initial_delay: float,
+    ) -> None:
+        if action_timeout <= 0:
+            raise ValueError("action_timeout must be greater than zero")
+        if recovery_attempts <= 0:
+            raise ValueError("recovery_attempts must be greater than zero")
+        if recovery_delay < 0:
+            raise ValueError("recovery_delay must not be negative")
+        if recovery_timeout <= 0:
+            raise ValueError("recovery_timeout must be greater than zero")
+        if initial_delay < 0:
+            raise ValueError("initial_delay must not be negative")
 
     @staticmethod
     def _canonical_time(value: str) -> str:

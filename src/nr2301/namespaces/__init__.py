@@ -43,7 +43,7 @@ from .lan import (
     LANAddressResponse,
     LANNamespace,
 )
-from .maintenance import MaintenanceNamespace, TimedRebootSettings
+from .maintenance import MaintenanceNamespace, MaintenanceRecoveryResult, TimedRebootSettings
 from .mobile import (
     AvailableNetworkModes,
     CellInfo,
@@ -173,6 +173,7 @@ __all__ = [
     "MacInfo",
     "MagicNumberInfo",
     "MaintenanceNamespace",
+    "MaintenanceRecoveryResult",
     "MobileNamespace",
     "NetworkSelectMode",
     "NetworkSettings",
