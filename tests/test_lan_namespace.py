@@ -194,3 +194,35 @@ def test_set_dns_raises_api_error_when_readback_does_not_match():
     assert exc_info.value.method_id == "router/router_set_dhcp_settings_comb"
     assert exc_info.value.response["expected"]["dns1"] == "1.1.1.1"
     assert exc_info.value.response["actual"]["dnsmode"] == "auto"
+
+
+def test_legacy_dhcp_settings_uses_verified_one_member_multicall():
+    member = {"dhcp": {"disabled": "0", "limit": "10"}}
+    client, session = authenticated_client([({"responses": [{"data": member}]}, 200)])
+
+    assert client.lan.legacy_dhcp_settings() == member
+
+    assert len(session.calls) == 1
+    method, _, kwargs = session.calls[0]
+    assert method == "POST"
+    assert kwargs["params"] == {"multicalls": 1}
+    assert kwargs["json"] == {
+        "requests": [{"path": "router", "method": "router_get_dhcp_settings"}]
+    }
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"responses": []},
+        {"responses": ["not-an-object"]},
+        {"responses": [{}]},
+        {"responses": [{"data": "not-an-object"}]},
+    ],
+)
+def test_legacy_dhcp_settings_rejects_malformed_multicall(payload):
+    client, _ = authenticated_client([(payload, 200)])
+
+    with pytest.raises(ProtocolError):
+        client.lan.legacy_dhcp_settings()

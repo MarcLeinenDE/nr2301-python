@@ -66,6 +66,16 @@ class AvailableNetworkModes(TypedDict, total=False):
     result: int
 
 
+class WANSettingsResponse(TypedDict, total=False):
+    """Known response fields returned by `cm/get_wan_settings`."""
+
+    mobile_ping_enable: int
+    ping_address: str
+    static: dict[str, str]
+    wan_type_primary: str
+    wifi_extender: dict[str, str]
+
+
 class NetworkSelectMode(TypedDict, total=False):
     """Known response fields returned by `util_wan/get_network_select_mode`."""
 
@@ -119,6 +129,34 @@ class MobileNamespace:
                 "get_available_network_mode",
                 timeout=timeout,
             ),
+        )
+
+    def wan_settings(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> WANSettingsResponse:
+        """Return the raw primary-WAN/extender settings.
+
+        The nested Wi-Fi extender block may contain a password. Treat this
+        response as sensitive configuration data rather than routine telemetry.
+        """
+
+        return cast(
+            WANSettingsResponse,
+            self._client.call("cm", "get_wan_settings", timeout=timeout),
+        )
+
+    def search_networks(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Run the live-verified operator scan and return its raw network list."""
+
+        return cast(
+            dict[str, Any],
+            self._client.call("util_wan", "search_network", timeout=timeout),
         )
 
     def network_select_mode(

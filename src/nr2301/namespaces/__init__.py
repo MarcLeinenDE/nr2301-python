@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from .ddns import DDNSNamespace, DDNSSettings
 from .device import (
     BatteryInfo,
     DeviceInfo,
@@ -52,6 +53,7 @@ from .mobile import (
     NetworkSelectMode,
     NetworkSettings,
     NetworkSettingsResponse,
+    WANSettingsResponse,
     SignalInfo,
     WANContext,
 )
@@ -102,6 +104,7 @@ from .statistics import (
     TrafficTransportResponse,
     TrafficTransportState,
 )
+from .tr069 import TR069Config, TR069Namespace, TR069XMPPConfig
 from .version import MagicNumberInfo, VersionInfo, VersionNamespace
 from .wifi import (
     APSection,
@@ -131,6 +134,12 @@ __all__ = [
     "CurrentWANInfo",
     "DHCPSettings",
     "DNSSettings",
+    "DDNSNamespace",
+    "DDNSSettings",
+    "TR069Config",
+    "TR069Namespace",
+    "TR069XMPPConfig",
+    "WANSettingsResponse",
     "DeviceInfo",
     "DeviceNamespace",
     "ExtenderConfig",
