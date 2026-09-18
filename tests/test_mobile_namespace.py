@@ -277,15 +277,41 @@ def test_reconnect_mobile_treats_transport_failure_as_inconclusive_then_recovers
 
 
 @pytest.mark.parametrize(
-    "status",
-    ["0", 0, "1", 1],
+    ("status", "expected"),
+    [
+        ("0", False),
+        (0, False),
+        ("1", True),
+        (1, True),
+        ("2", None),
+        (2, None),
+    ],
 )
-def test_wan_connection_status_parses_numeric_strings_and_ints(status):
-    expected = int(status) == 1
+def test_wan_connection_status_parses_final_and_transition_states(status, expected):
     assert (
         MobileNamespace._wan_connected({"contextlist": [{"connection_status": status}]})
         is expected
     )
+
+
+def test_reconnect_mobile_polls_through_connection_status_2_transition():
+    client, session = authenticated_client(
+        {"result": 0},
+        {"contextlist": [{"connection_status": 0}]},
+        {"result": 0},
+        {"contextlist": [{"connection_status": 2, "internet_status": 0}]},
+        {"contextlist": [{"connection_status": 2, "internet_status": 0}]},
+        {"contextlist": [{"connection_status": 1, "internet_status": 0}]},
+        {"contextlist": [{"connection_status": 1, "internet_status": 1}]},
+    )
+
+    result = client.mobile.reconnect_mobile(
+        recovery_attempts=2,
+        recovery_delay=0,
+    )
+
+    assert result["contextlist"][0]["connection_status"] == 1
+    assert len(session.calls) == 7
 
 
 def test_select_network_auto_writes_exact_body_and_verifies_mode():
