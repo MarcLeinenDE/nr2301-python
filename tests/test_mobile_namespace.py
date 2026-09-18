@@ -1,6 +1,7 @@
 import pytest
 
 from nr2301 import APIError, NR2301Client, ProtocolError
+from nr2301.namespaces.mobile import MobileNamespace
 
 from conftest import FakeResponse, FakeSession
 
@@ -205,5 +206,180 @@ def test_set_data_roaming_requires_bool_before_network_access():
 
     with pytest.raises(TypeError, match="enabled must be a bool"):
         client.mobile.set_data_roaming("1")  # type: ignore[arg-type]
+
+    assert session.calls == []
+
+
+def test_disconnect_mobile_uses_bodyless_get():
+    client, session = authenticated_client({"result": 0})
+
+    assert client.mobile.disconnect_mobile() == {"result": 0}
+
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "cm"
+    assert kwargs["params"]["method"] == "disconnect"
+    assert "json" not in kwargs
+
+
+def test_connect_mobile_uses_bodyless_get():
+    client, session = authenticated_client({"result": 0})
+
+    assert client.mobile.connect_mobile() == {"result": 0}
+
+    method, _, kwargs = session.calls[0]
+    assert method == "GET"
+    assert kwargs["params"]["path"] == "cm"
+    assert kwargs["params"]["method"] == "connect"
+    assert "json" not in kwargs
+
+
+def test_reconnect_mobile_recovers_and_requires_connected_readback():
+    client, session = authenticated_client(
+        {"result": 0},
+        {"contextlist": [{"connection_status": 0}]},
+        {"result": 0},
+        {"contextlist": [{"connection_status": 1, "internet_status": 1}]},
+        {"contextlist": [{"connection_status": 1, "internet_status": 1}]},
+    )
+
+    result = client.mobile.reconnect_mobile(
+        recovery_attempts=1,
+        recovery_delay=0,
+    )
+
+    assert result["contextlist"][0]["connection_status"] == 1
+    assert [call[2]["params"]["method"] for call in session.calls] == [
+        "disconnect",
+        "get_current_wan_info",
+        "connect",
+        "get_current_wan_info",
+        "get_current_wan_info",
+    ]
+
+
+def test_reconnect_mobile_treats_transport_failure_as_inconclusive_then_recovers():
+    client, session = authenticated_client(
+        FakeResponse({}, status_code=500),
+        {"contextlist": [{"connection_status": 0}]},
+        FakeResponse({}, status_code=500),
+        {"contextlist": [{"connection_status": 1}]},
+        {"contextlist": [{"connection_status": 1}]},
+    )
+
+    result = client.mobile.reconnect_mobile(
+        recovery_attempts=1,
+        recovery_delay=0,
+    )
+
+    assert result["contextlist"][0]["connection_status"] == 1
+    assert len(session.calls) == 5
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("0", False),
+        (0, False),
+        ("1", True),
+        (1, True),
+        ("2", None),
+        (2, None),
+    ],
+)
+def test_wan_connection_status_parses_final_and_transition_states(status, expected):
+    assert (
+        MobileNamespace._wan_connected({"contextlist": [{"connection_status": status}]})
+        is expected
+    )
+
+
+def test_reconnect_mobile_polls_through_connection_status_2_transition():
+    client, session = authenticated_client(
+        {"result": 0},
+        {"contextlist": [{"connection_status": 0}]},
+        {"result": 0},
+        {"contextlist": [{"connection_status": 2, "internet_status": 0}]},
+        {"contextlist": [{"connection_status": 2, "internet_status": 0}]},
+        {"contextlist": [{"connection_status": 1, "internet_status": 0}]},
+        {"contextlist": [{"connection_status": 1, "internet_status": 1}]},
+    )
+
+    result = client.mobile.reconnect_mobile(
+        recovery_attempts=2,
+        recovery_delay=0,
+    )
+
+    assert result["contextlist"][0]["connection_status"] == 1
+    assert len(session.calls) == 7
+
+
+def test_select_network_auto_writes_exact_body_and_verifies_mode():
+    client, session = authenticated_client(
+        {"response": {"setting_response": "OK"}},
+        {"contextlist": [{"connection_status": 1}]},
+        {"nw_sel_mode": "auto", "result": 0},
+    )
+
+    result = client.mobile.select_network(
+        "auto",
+        recovery_attempts=1,
+        recovery_delay=0,
+    )
+
+    assert result["nw_sel_mode"] == "auto"
+    assert [call[2]["params"]["method"] for call in session.calls] == [
+        "select_network",
+        "get_current_wan_info",
+        "get_network_select_mode",
+    ]
+    assert session.calls[0][0] == "POST"
+    assert session.calls[0][2]["params"]["path"] == "util_wan"
+    assert session.calls[0][2]["json"] == {"network_param": "auto"}
+
+
+def test_select_network_manual_value_is_passed_through_without_inventing_identifier():
+    client, session = authenticated_client(
+        {"response": {"setting_response": "OK"}},
+        {"contextlist": [{"connection_status": 1}]},
+        {"nw_sel_mode": "manual", "result": 0},
+    )
+
+    result = client.mobile.select_network(
+        "SCAN-RETURNED-OPAQUE-VALUE",
+        recovery_attempts=1,
+        recovery_delay=0,
+    )
+
+    assert result["nw_sel_mode"] == "manual"
+    assert session.calls[0][2]["json"] == {
+        "network_param": "SCAN-RETURNED-OPAQUE-VALUE"
+    }
+
+
+def test_select_network_expected_mode_mismatch_raises_api_error():
+    client, _ = authenticated_client(
+        {"response": {"setting_response": "OK"}},
+        {"contextlist": [{"connection_status": 1}]},
+        {"nw_sel_mode": "manual", "result": 0},
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.mobile.select_network(
+            "auto",
+            recovery_attempts=1,
+            recovery_delay=0,
+        )
+
+    assert exc_info.value.method_id == "util_wan/select_network"
+    assert exc_info.value.response["expected_mode"] == "auto"
+    assert exc_info.value.response["actual_mode"] == "manual"
+
+
+def test_select_network_rejects_empty_parameter_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        client.mobile.select_network("")
 
     assert session.calls == []
