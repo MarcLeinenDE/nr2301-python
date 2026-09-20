@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -153,6 +154,66 @@ def fetch_text(session, url: str) -> tuple[int, str, str]:
     return response.status_code, content_type, response.text
 
 
+def console_safe(value: str) -> str:
+    """Return text printable on legacy Windows console encodings."""
+
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return value.encode(encoding, errors="backslashreplace").decode(
+        encoding,
+        errors="replace",
+    )
+
+
+def function_contexts(text: str) -> list[dict[str, object]]:
+    """Extract larger source windows around file/restore-related call sites."""
+
+    lower = text.lower()
+    targets = (
+        "/file.cgi",
+        "file.cgi",
+        "btn_restore_config",
+        "input_file",
+        "config_backup",
+        "formdata",
+    )
+    found: list[dict[str, object]] = []
+    seen: set[tuple[int, int]] = set()
+
+    for target in targets:
+        start = 0
+        while True:
+            pos = lower.find(target.lower(), start)
+            if pos < 0:
+                break
+
+            # Prefer the surrounding function block when possible, otherwise
+            # emit a larger source window around the call site.
+            fn_start = max(
+                text.rfind("function ", 0, pos),
+                text.rfind("=>", 0, pos) - 500,
+            )
+            if fn_start < 0 or pos - fn_start > 5000:
+                fn_start = max(0, pos - 2500)
+
+            next_fn = text.find("function ", pos + len(target))
+            fn_end = next_fn if 0 < next_fn - pos <= 8000 else min(len(text), pos + 5000)
+
+            key = (fn_start, fn_end)
+            if key not in seen:
+                seen.add(key)
+                found.append(
+                    {
+                        "target": target,
+                        "start": fn_start,
+                        "end": fn_end,
+                        "snippet": text[fn_start:fn_end],
+                    }
+                )
+            start = pos + len(target)
+
+    return found
+
+
 def main() -> None:
     require_read_gate()
 
@@ -197,6 +258,7 @@ def main() -> None:
                 "file": "00-set_config.html",
                 "forms": form_inventory(source),
                 "excerpts": relevant_excerpts(source),
+                "function_contexts": function_contexts(source),
             }
         ]
 
@@ -223,6 +285,7 @@ def main() -> None:
                     "content_type": script_type,
                     "file": filename,
                     "excerpts": relevant_excerpts(script_source),
+                    "function_contexts": function_contexts(script_source),
                 }
             )
 
@@ -261,7 +324,17 @@ def main() -> None:
                 f" part={number}"
                 f" needles={','.join(excerpt['needles'])} ==="
             )
-            print(snippet)
+            print(console_safe(snippet))
+
+        contexts = asset.get("function_contexts") or []
+        for number, context in enumerate(contexts, start=1):
+            print(
+                "\n=== CONFIG_FUNCTION_CONTEXT"
+                f" file={asset.get('file')}"
+                f" part={number}"
+                f" target={context.get('target')} ==="
+            )
+            print(console_safe(str(context.get("snippet") or "")))
 
     print(f"CONFIG_SOURCE_RELEVANT_EXCERPTS = {relevant_count}")
     print("CONFIG_SOURCE_CAPTURE = PASS")
