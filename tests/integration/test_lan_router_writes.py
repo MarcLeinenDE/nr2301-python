@@ -130,17 +130,17 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
         [dict(item) for item in original_reservations]
     )
 
-    dhcp_changed = False
-    reservations_changed = False
+    dhcp_attempted = False
+    reservations_attempted = False
 
     try:
+        dhcp_attempted = True
         verified_dhcp = router.lan.set_dhcp_settings(
             mutated_dhcp,
             recovery_attempts=30,
             recovery_delay=1.0,
             recovery_timeout=4.0,
         )
-        dhcp_changed = True
         assert _dhcp_fingerprint(verified_dhcp) == _dhcp_fingerprint(mutated_dhcp)
         assert _dhcp_fingerprint(verified_dhcp) != original_dhcp_fp
         print(
@@ -151,13 +151,13 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
             flush=True,
         )
 
+        reservations_attempted = True
         verified_reservations = router.lan.set_static_reservations(
             synthetic_reservations,
             recovery_attempts=30,
             recovery_delay=1.0,
             recovery_timeout=4.0,
         )
-        reservations_changed = True
         assert _reservation_fingerprint(verified_reservations) == (
             _reservation_fingerprint(synthetic_reservations)
         )
@@ -205,7 +205,7 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
         )
 
     finally:
-        if reservations_changed:
+        if reservations_attempted:
             restored_reservations = router.lan.set_static_reservations(
                 [dict(item) for item in original_reservations],
                 recovery_attempts=30,
@@ -216,7 +216,7 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
                 original_reservation_fp
             )
 
-        if dhcp_changed:
+        if dhcp_attempted:
             restored_dhcp = router.lan.set_dhcp_settings(
                 dict(original_dhcp),
                 recovery_attempts=30,
