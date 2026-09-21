@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 
 import pytest
 
-from nr2301 import NR2301Client
+from nr2301 import NR2301Client, NR2301Error
 
 
 if os.environ.get("NR2301_DESTRUCTIVE_INTEGRATION") != "1":
@@ -53,12 +54,53 @@ def _stable_config_snapshot(router):
     }
 
 
+def _stable_config_snapshot_with_recovery(
+    router,
+    *,
+    attempts=60,
+    delay=1.0,
+):
+    """Wait until all compared configuration namespaces are API-ready."""
+
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            snapshot = _stable_config_snapshot(router)
+            if attempt > 1:
+                print(
+                    "CONFIG_API_READY"
+                    f" attempt={attempt}"
+                    f" previous_error={type(last_error).__name__ if last_error else None}",
+                    flush=True,
+                )
+            return snapshot
+        except NR2301Error as exc:
+            last_error = exc
+            print(
+                "CONFIG_API_NOT_READY"
+                f" attempt={attempt}"
+                f" error={type(exc).__name__}",
+                flush=True,
+            )
+            try:
+                router.login()
+            except NR2301Error:
+                pass
+            if attempt < attempts:
+                time.sleep(delay)
+
+    raise AssertionError(
+        "configuration APIs did not become jointly ready after restore: "
+        f"{type(last_error).__name__ if last_error else 'unknown'}"
+    )
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 def test_download_restore_same_backup_and_verify_configuration(router):
-    before_state = _stable_config_snapshot(router)
+    before_state = _stable_config_snapshot_with_recovery(router)
 
     backup = router.maintenance.download_config_backup(timeout=30.0)
     before_hash = _sha256(backup)
@@ -94,7 +136,11 @@ def test_download_restore_same_backup_and_verify_configuration(router):
     assert result["uploaded_bytes"] == len(backup)
     assert result["chunk_count"] >= 1
 
-    after_state = _stable_config_snapshot(router)
+    after_state = _stable_config_snapshot_with_recovery(
+        router,
+        attempts=90,
+        delay=1.0,
+    )
     assert after_state == before_state
 
     # Reconfirm that the stock backup download endpoint remains usable after
