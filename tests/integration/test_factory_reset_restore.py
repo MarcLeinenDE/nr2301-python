@@ -25,12 +25,18 @@ pytestmark = pytest.mark.integration
 def router():
     password = os.environ.get("NR2301_PASSWORD")
     factory_password = os.environ.get("NR2301_FACTORY_PASSWORD")
+    temporary_password = os.environ.get("NR2301_FACTORY_TEST_PASSWORD")
     if not password:
         pytest.skip("NR2301_PASSWORD is required")
     if not factory_password:
         pytest.skip(
             "NR2301_FACTORY_PASSWORD is required; use the device-specific "
             "default admin password shown on the NR2301 LCD"
+        )
+    if not temporary_password:
+        pytest.skip(
+            "NR2301_FACTORY_TEST_PASSWORD is required for credential "
+            "reset/restore verification"
         )
 
     with NR2301Client(
@@ -137,38 +143,66 @@ def _timed_reboot_with_recovery(router, *, attempts=60, delay=1.0):
 def test_factory_reset_then_restore_original_backup(router):
     original_password = os.environ["NR2301_PASSWORD"]
     factory_password = os.environ["NR2301_FACTORY_PASSWORD"]
+    temporary_password = os.environ["NR2301_FACTORY_TEST_PASSWORD"]
+
+    if temporary_password in {original_password, factory_password}:
+        pytest.fail(
+            "NR2301_FACTORY_TEST_PASSWORD must differ from the original/default password"
+        )
 
     before_state = _snapshot_with_recovery(router)
     original_timed = before_state["timed_reboot"]
 
-    backup = router.maintenance.download_config_backup(timeout=30.0)
+    # Baseline backup is captured before any credential mutation. This is the
+    # final cleanup artifact and returns the router to the exact starting
+    # credential/configuration state.
+    baseline_backup = router.maintenance.download_config_backup(timeout=30.0)
     print(
-        "FACTORY_BACKUP"
-        f" size={len(backup)}"
-        f" sha256={hashlib.sha256(backup).hexdigest()}",
+        "FACTORY_BASELINE_BACKUP"
+        f" size={len(baseline_backup)}"
+        f" sha256={hashlib.sha256(baseline_backup).hexdigest()}",
         flush=True,
     )
 
-    marker_candidates = [
-        ("23:57", 85),
-        ("22:46", 170),
-    ]
-    original_semantics = _timed_semantics(original_timed)
-    marker_time, marker_repeat = marker_candidates[0]
-    if original_semantics == (0, 23, 57, 85):
-        marker_time, marker_repeat = marker_candidates[1]
-
-    marker = router.maintenance.set_timed_reboot(
-        False,
-        marker_time,
-        marker_repeat,
-        timeout=10.0,
-    )
-    marker_semantics = _timed_semantics(marker)
-    assert marker_semantics != original_semantics
-
-    factory_result = None
+    main_result = None
     try:
+        password_result = router.account.set_password(
+            temporary_password,
+            timeout=10.0,
+            verify_login=True,
+        )
+        assert int(password_result.get("result")) == 0
+        assert router.password == temporary_password
+
+        # This backup deliberately contains the temporary password. Restoring
+        # it after factory reset must therefore change the credential away from
+        # the factory/default value again.
+        test_backup = router.maintenance.download_config_backup(timeout=30.0)
+        print(
+            "FACTORY_TEST_BACKUP"
+            f" size={len(test_backup)}"
+            f" sha256={hashlib.sha256(test_backup).hexdigest()}",
+            flush=True,
+        )
+
+        marker_candidates = [
+            ("23:57", 85),
+            ("22:46", 170),
+        ]
+        original_semantics = _timed_semantics(original_timed)
+        marker_time, marker_repeat = marker_candidates[0]
+        if original_semantics == (0, 23, 57, 85):
+            marker_time, marker_repeat = marker_candidates[1]
+
+        marker = router.maintenance.set_timed_reboot(
+            False,
+            marker_time,
+            marker_repeat,
+            timeout=10.0,
+        )
+        marker_semantics = _timed_semantics(marker)
+        assert marker_semantics != original_semantics
+
         factory_result = router.maintenance.factory_reset(
             factory_password,
             action_timeout=5.0,
@@ -184,7 +218,7 @@ def test_factory_reset_then_restore_original_backup(router):
             f" boot_after={factory_result.get('boot_time_after')}"
             f" outage_observed={factory_result.get('outage_observed')}"
             f" action_error={factory_result.get('action_error')!r}"
-            f" credential_changed={factory_password != original_password}",
+            f" credential_reset={router.password == factory_password}",
             flush=True,
         )
 
@@ -200,15 +234,56 @@ def test_factory_reset_then_restore_original_backup(router):
             f" after_factory_reset={reset_semantics}",
             flush=True,
         )
-
         assert reset_semantics != marker_semantics
 
+        # Restore the backup that contains the temporary password. Recovery
+        # must therefore use that temporary credential.
+        test_restore = router.maintenance.restore_config_backup(
+            test_backup,
+            action_timeout=30.0,
+            recovery_attempts=180,
+            recovery_delay=1.0,
+            recovery_timeout=4.0,
+            initial_delay=2.0,
+            recovery_password=temporary_password,
+        )
+
+        print(
+            "FACTORY_TEST_RESTORE"
+            f" boot_before={test_restore.get('boot_time_before')}"
+            f" boot_after={test_restore.get('boot_time_after')}"
+            f" outage_observed={test_restore.get('outage_observed')}"
+            f" action_error={test_restore.get('action_error')!r}"
+            f" uploaded_bytes={test_restore.get('uploaded_bytes')}"
+            f" chunks={test_restore.get('chunk_count')}"
+            f" credential_restored={router.password == temporary_password}",
+            flush=True,
+        )
+
+        assert test_restore["boot_time_after"] < test_restore["boot_time_before"]
+        assert router.password == temporary_password
+
+        restored_test_state = _snapshot_with_recovery(router)
+        assert restored_test_state == before_state
+
+        # A fresh account read proves that the new credential-backed session
+        # is usable after the restore; the raw response is intentionally not
+        # printed because it can contain sensitive account fields.
+        account_info = router.account.info(timeout=5.0)
+        assert int(account_info.get("result")) == 0
+
+        main_result = {
+            "factory_reset": factory_result,
+            "test_restore": test_restore,
+        }
+
     finally:
-        # The backup was captured before the synthetic marker. Restoring it is
-        # therefore the cleanup path whether the factory-reset assertions pass
-        # or a later verification step fails.
-        restore_result = router.maintenance.restore_config_backup(
-            backup,
+        # Always restore the original pre-mutation backup. It contains the
+        # device-default/original administrator password and all original
+        # settings. recovery_password switches the client back to that
+        # credential after the final reboot.
+        baseline_restore = router.maintenance.restore_config_backup(
+            baseline_backup,
             action_timeout=30.0,
             recovery_attempts=180,
             recovery_delay=1.0,
@@ -218,27 +293,30 @@ def test_factory_reset_then_restore_original_backup(router):
         )
 
         print(
-            "FACTORY_RESTORE"
-            f" boot_before={restore_result.get('boot_time_before')}"
-            f" boot_after={restore_result.get('boot_time_after')}"
-            f" outage_observed={restore_result.get('outage_observed')}"
-            f" action_error={restore_result.get('action_error')!r}"
-            f" uploaded_bytes={restore_result.get('uploaded_bytes')}"
-            f" chunks={restore_result.get('chunk_count')}",
+            "FACTORY_BASELINE_RESTORE"
+            f" boot_before={baseline_restore.get('boot_time_before')}"
+            f" boot_after={baseline_restore.get('boot_time_after')}"
+            f" outage_observed={baseline_restore.get('outage_observed')}"
+            f" action_error={baseline_restore.get('action_error')!r}"
+            f" uploaded_bytes={baseline_restore.get('uploaded_bytes')}"
+            f" chunks={baseline_restore.get('chunk_count')}"
+            f" original_credential_restored={router.password == original_password}",
             flush=True,
         )
 
-    after_state = _snapshot_with_recovery(router)
-    assert after_state == before_state
-    assert router.password == original_password
+        final_state = _snapshot_with_recovery(router)
+        assert final_state == before_state
+        assert router.password == original_password
 
-    backup_after = router.maintenance.download_config_backup(timeout=30.0)
-    assert backup_after
+        backup_after = router.maintenance.download_config_backup(timeout=30.0)
+        assert backup_after
 
-    print(
-        "FACTORY_FINAL"
-        f" restored_state_equal={after_state == before_state}"
-        f" backup_after_size={len(backup_after)}"
-        f" backup_after_sha256={hashlib.sha256(backup_after).hexdigest()}",
-        flush=True,
-    )
+        print(
+            "FACTORY_FINAL"
+            f" restored_state_equal={final_state == before_state}"
+            f" backup_after_size={len(backup_after)}"
+            f" backup_after_sha256={hashlib.sha256(backup_after).hexdigest()}",
+            flush=True,
+        )
+
+    assert main_result is not None
