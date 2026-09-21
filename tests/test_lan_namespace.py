@@ -106,7 +106,7 @@ def test_set_dns_preserves_combined_settings_and_verifies_readback():
         "ipv6dns2": "2606:4700:4700::1001",
     }
 
-    method, _, kwargs = session.calls[2]
+    method, _, kwargs = session.calls[1]
     assert method == "POST"
     assert kwargs["params"] == {"multicalls": 1}
     member = kwargs["json"]["requests"][0]
@@ -348,7 +348,7 @@ def test_set_static_reservations_uses_multicall_and_exact_readback():
     )
 
     assert result == [expected_item]
-    method, _, kwargs = session.calls[1]
+    method, _, kwargs = session.calls[2]
     assert method == "POST"
     assert kwargs["params"] == {"multicalls": 1}
     member = kwargs["json"]["requests"][0]
