@@ -593,7 +593,8 @@ class LANNamespace:
         missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in settings]
         if missing:
             raise ProtocolError(
-                "combined DHCP write requires all fields: " + ", ".join(missing)
+                "refusing combined DHCP write because the read-back object is "
+                "missing required fields: " + ", ".join(missing)
             )
 
         payload: dict[str, str] = {}
