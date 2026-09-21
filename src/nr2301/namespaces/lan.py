@@ -66,13 +66,7 @@ class LANAddressResponse(TypedDict, total=False):
 
 
 class StaticReservation(TypedDict):
-    index: str
-    mac: str
-    ip: str
-
-
-class StaticReservation(TypedDict):
-    index: str
+    index: int
     mac: str
     ip: str
 
@@ -257,6 +251,16 @@ class LANNamespace:
         indices = [item["index"] for item in expected]
         if len(indices) != len(set(indices)):
             raise ValueError("reservation indices must be unique")
+
+        macs = [item["mac"].lower() for item in expected]
+        if len(macs) != len(set(macs)):
+            raise ValueError("reservation MAC addresses must be unique")
+        ips = [item["ip"] for item in expected]
+        if len(ips) != len(set(ips)):
+            raise ValueError("reservation IPv4 addresses must be unique")
+
+        address = self.address(timeout=recovery_timeout)
+        self._validate_reservations_against_lan(expected, address)
 
         current = self.static_reservation_list(timeout=recovery_timeout)
         if self._reservation_cmp(current) == self._reservation_cmp(expected):
@@ -678,22 +682,61 @@ class LANNamespace:
             raise TypeError("reservation ip must be a str")
         _validate_ip(ip, version=4, field="reservation ip")
 
+        normalized_mac = mac.lower()
+        first_octet = int(normalized_mac.split(":")[0], 16)
+        if first_octet & 1:
+            raise ValueError("reservation mac must not be multicast")
+
         return StaticReservation(
-            index=str(index),
-            mac=mac.lower(),
+            index=index,
+            mac=normalized_mac,
             ip=str(ipaddress.ip_address(ip)),
         )
 
     @staticmethod
+    def _validate_reservations_against_lan(
+        items: list[StaticReservation],
+        address: Mapping[str, Any],
+    ) -> None:
+        router = address.get("router")
+        if not isinstance(router, Mapping):
+            raise ProtocolError(
+                "router/router_get_lan_ip did not return a router object"
+            )
+        lan_ip = router.get("lan_ip")
+        lan_netmask = router.get("lan_netmask")
+        if not isinstance(lan_ip, str) or not isinstance(lan_netmask, str):
+            raise ProtocolError(
+                "router/router_get_lan_ip did not return usable LAN address fields"
+            )
+        try:
+            network = ipaddress.IPv4Network(
+                f"{lan_ip}/{lan_netmask}",
+                strict=False,
+            )
+        except ValueError as exc:
+            raise ProtocolError(
+                "router/router_get_lan_ip returned an invalid LAN/network pair"
+            ) from exc
+
+        for item in items:
+            candidate = ipaddress.IPv4Address(item["ip"])
+            if candidate not in network:
+                raise ValueError(
+                    f"reservation ip {item['ip']} must be inside current LAN subnet "
+                    f"{network.with_netmask}"
+                )
+
+    @staticmethod
     def _reservation_cmp(
         items: list[StaticReservation],
-    ) -> list[tuple[str, str, str]]:
+    ) -> list[tuple[int, str, str]]:
         return sorted(
             (
                 (item["index"], item["mac"].lower(), item["ip"])
                 for item in items
             ),
-            key=lambda value: int(value[0]),
+            key=lambda value: value[0],
         )
 
     @staticmethod
