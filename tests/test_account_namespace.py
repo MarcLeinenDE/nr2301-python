@@ -1,11 +1,23 @@
 import pytest
 
-from nr2301 import APIError
+from nr2301 import APIError, NR2301Client
 
-from conftest import authenticated_client
+from conftest import FakeResponse, FakeSession
 
 
 _SYNTHETIC_PASSWORD = "Temporary9!"
+
+
+def authenticated_client(*payloads):
+    responses = [
+        payload if isinstance(payload, FakeResponse) else FakeResponse(payload)
+        for payload in payloads
+    ]
+    session = FakeSession(responses)
+    session.cookies.set("CGISID", "session-123")
+    client = NR2301Client(password="synthetic-current", session=session)
+    client._authenticated = True
+    return client, session
 
 
 def test_account_info_uses_post_with_admin_type_and_current_session_id():
