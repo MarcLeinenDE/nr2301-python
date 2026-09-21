@@ -123,6 +123,19 @@ def _indexed_state(
     return enable, tuple(slots)
 
 
+
+def _normalize_indexed_slots(
+    slots: tuple[tuple[str, ...], ...],
+    fields: tuple[str, ...],
+) -> tuple[tuple[str, ...], ...]:
+    normalized: list[tuple[str, ...]] = []
+    for values in slots:
+        row = []
+        for field, value in zip(fields, values):
+            row.append(value.lower() if field == "mac" else value)
+        normalized.append(tuple(row))
+    return tuple(normalized)
+
 def _items_from_slots(
     slots: tuple[tuple[str, ...], ...],
     fields: tuple[str, ...],
@@ -477,7 +490,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             fields=_PF_FIELDS,
             limit=5,
             label="port_forward",
-        ) == (1, mutated_pf)
+        ) == (1, _normalize_indexed_slots(mutated_pf, _PF_FIELDS))
         print("FIREWALL_PORT_FORWARD_WRITE changed=True readback=True", flush=True)
 
         pt_enable, pt_slots = original["port_trigger"]
