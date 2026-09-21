@@ -73,6 +73,49 @@ class HTTPTransport:
         )
         return self._decode_json(response, method_id="multicall")
 
+    @property
+    def file_url(self) -> str:
+        return f"{self.base_url}/file.cgi"
+
+    def file_download(
+        self,
+        *,
+        params: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> bytes:
+        """Download opaque bytes from the authenticated `/file.cgi` family."""
+
+        effective_timeout = self.timeout if timeout is None else timeout
+        response = self._request(
+            "GET",
+            self.file_url,
+            params=dict(params),
+            timeout=effective_timeout,
+        )
+        return bytes(response.content)
+
+    def file_upload(
+        self,
+        data: bytes,
+        *,
+        params: Mapping[str, Any],
+        timeout: float | None = None,
+    ) -> bytes:
+        """POST one raw binary chunk to the authenticated `/file.cgi` family."""
+
+        if not isinstance(data, bytes):
+            raise TypeError("file upload data must be bytes")
+        effective_timeout = self.timeout if timeout is None else timeout
+        response = self._request(
+            "POST",
+            self.file_url,
+            params=dict(params),
+            data=data,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=effective_timeout,
+        )
+        return bytes(response.content)
+
     def close(self) -> None:
         self.session.close()
 
