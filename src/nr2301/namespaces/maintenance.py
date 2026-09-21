@@ -158,6 +158,11 @@ class MaintenanceNamespace:
             raise TypeError("chunk_size must be an int")
         if chunk_size <= 0:
             raise ValueError("chunk_size must be greater than zero")
+        if recovery_password is not None:
+            if not isinstance(recovery_password, str):
+                raise TypeError("recovery_password must be a str or None")
+            if not recovery_password:
+                raise ValueError("recovery_password must not be empty")
 
         self._validate_recovery_args(
             action_timeout=action_timeout,
@@ -209,10 +214,6 @@ class MaintenanceNamespace:
                 )
 
         if recovery_password is not None:
-            if not isinstance(recovery_password, str):
-                raise TypeError("recovery_password must be a str or None")
-            if not recovery_password:
-                raise ValueError("recovery_password must not be empty")
             self._switch_recovery_password(recovery_password)
 
         started = time.monotonic()
