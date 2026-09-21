@@ -79,7 +79,7 @@ def _flag(response: Mapping[str, Any], key: str, label: str) -> int:
     return _binary(_firewall(response, label).get(key), f"{label}.{key}")
 
 
-def _vpn_state(router) -> tuple[int, int, int]:
+def _vpn_state(router, *, timeout: float = 10.0) -> tuple[int, int, int]:
     response = router.firewall.vpn_passthrough(timeout=timeout)
     return (
         _binary(response.get("pptp"), "vpn.pptp"),
@@ -276,7 +276,7 @@ def _snapshot(router, *, timeout: float = 10.0) -> dict[str, object]:
         "dmz_enabled": 1
         - _flag(router.firewall.disable_info(timeout=timeout), "dmz_disable", "dmz"),
         "dmz_destination": _dmz_destination(router, timeout=timeout),
-        "vpn": _vpn_state(router),
+        "vpn": _vpn_state(router, timeout=timeout),
         "admin_from_wan": _flag(
             router.firewall.admin_from_wan(timeout=timeout),
             "admin_from_wan_enable",
@@ -482,7 +482,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         )
         assert (
             _flag(
-                router.firewall.admin_from_wan(timeout=timeout),
+                router.firewall.admin_from_wan(timeout=10.0),
                 "admin_from_wan_enable",
                 "admin_from_wan",
             )
@@ -495,7 +495,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         )
         assert (
             _flag(
-                router.firewall.ping_from_wan(timeout=timeout),
+                router.firewall.ping_from_wan(timeout=10.0),
                 "ping_from_wan_enable",
                 "ping_from_wan",
             )
@@ -509,7 +509,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         router.firewall.replace_ip_filter_rules(list(mutated_ip), timeout=10.0)
         assert (
             _rule_state(
-                router.firewall.ip_filter(timeout=timeout),
+                router.firewall.ip_filter(timeout=10.0),
                 value_key="ip",
                 label="ip_filter",
             )
@@ -523,7 +523,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         assert (
             1
             - _flag(
-                router.firewall.ip_filter_mode_state(timeout=timeout),
+                router.firewall.ip_filter_mode_state(timeout=10.0),
                 "ip_filter_disable",
                 "ip_filter_mode",
             )
@@ -537,7 +537,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         router.firewall.replace_port_filter_rules(list(mutated_port), timeout=10.0)
         assert (
             _rule_state(
-                router.firewall.port_filter(timeout=timeout),
+                router.firewall.port_filter(timeout=10.0),
                 value_key="port",
                 label="port_filter",
             )
@@ -551,7 +551,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         assert (
             1
             - _flag(
-                router.firewall.port_filter_mode_state(timeout=timeout),
+                router.firewall.port_filter_mode_state(timeout=10.0),
                 "port_filter_disable",
                 "port_filter_mode",
             )
@@ -567,7 +567,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             True, items=_items_from_slots(mutated_pf, _PF_FIELDS), timeout=10.0
         )
         assert _indexed_state(
-            router.firewall.port_forward(timeout=timeout),
+            router.firewall.port_forward(timeout=10.0),
             fields=_PF_FIELDS,
             limit=5,
             label="port_forward",
@@ -582,7 +582,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             True, items=_items_from_slots(mutated_pt, _PT_FIELDS), timeout=10.0
         )
         assert _indexed_state(
-            router.firewall.port_trigger(timeout=timeout),
+            router.firewall.port_trigger(timeout=10.0),
             fields=_PT_FIELDS,
             limit=10,
             label="port_trigger",
@@ -614,7 +614,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         )
         assert (
             _flag(
-                router.firewall.upnp_state(timeout=timeout),
+                router.firewall.upnp_state(timeout=10.0),
                 "upnp_enable",
                 "upnp",
             )
