@@ -56,7 +56,7 @@ def test_login_performs_lockout_guard_challenge_and_establishes_session(monkeypa
     }
 
 
-def test_login_reports_canonical_host_hint_for_direct_ip_result4():
+def test_login_reports_state_dependent_authority_hint_for_direct_ip_result4():
     session = FakeSession([
         FakeResponse({"result": 4}),
     ])
@@ -66,8 +66,11 @@ def test_login_reports_canonical_host_hint_for_direct_ip_result4():
         client.login()
 
     assert exc.value.result == 4
-    assert "http://zyxel.home" in str(exc.value)
-    assert "192.168.1.1" in str(exc.value)
+    message = str(exc.value)
+    assert "http://zyxel.home" in message
+    assert "192.168.1.1" in message
+    assert "state/environment dependent" in message
+    assert "recheck later completed administrator login successfully" in message
     assert len(session.calls) == 1
 
 
