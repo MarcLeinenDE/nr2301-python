@@ -6,10 +6,22 @@ import requests
 
 
 class FakeResponse:
-    def __init__(self, payload: Any, *, status_code: int = 200, on_json=None) -> None:
+    def __init__(
+        self,
+        payload: Any = None,
+        *,
+        status_code: int = 200,
+        on_json=None,
+        content: bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self._payload = payload
         self.status_code = status_code
         self._on_json = on_json
+        if content is None:
+            content = payload if isinstance(payload, bytes) else b""
+        self.content = bytes(content)
+        self.headers = dict(headers or {})
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -24,7 +36,7 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, responses: list[FakeResponse]) -> None:
+    def __init__(self, responses: list[Any]) -> None:
         self.responses = list(responses)
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
         self.cookies = requests.cookies.RequestsCookieJar()
@@ -34,7 +46,10 @@ class FakeSession:
         self.calls.append((method, url, kwargs))
         if not self.responses:
             raise AssertionError("unexpected request")
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     def close(self) -> None:
         self.closed = True
