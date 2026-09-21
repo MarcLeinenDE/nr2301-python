@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 
 _TIME_RE = re.compile(r"^([0-9]{1,2}):([0-9]{1,2})$")
+_CONFIG_RESTORE_CHUNK_BYTES = 1024 * 1024
+_CONFIG_RESTORE_MAX_BYTES = 200 * 1024 * 1024
 
 
 class TimedRebootSettings(TypedDict, total=False):
@@ -29,7 +31,9 @@ class MaintenanceRecoveryResult(TypedDict, total=False):
     action_response: dict[str, Any]
     boot_time_after: int
     boot_time_before: int
+    chunk_count: int
     outage_observed: bool
+    uploaded_bytes: int
 
 
 class MaintenanceNamespace:
@@ -91,6 +95,167 @@ class MaintenanceNamespace:
                 response={"rc": rc},
             )
         return response
+
+    def download_config_backup(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> bytes:
+        """Download the current stock-WebUI configuration backup bytes.
+
+        The returned blob is secret-bearing and may contain credentials. The
+        SDK intentionally does not log, parse or persist it.
+        """
+
+        payload = self._client.transport.file_download(
+            params={
+                "Action": "Download",
+                "file": "backup_config",
+                "dl": "1",
+            },
+            timeout=timeout,
+        )
+        if not payload:
+            raise ProtocolError("configuration backup download returned no data")
+        return payload
+
+    def restore_config_backup(
+        self,
+        backup: bytes | bytearray | memoryview,
+        *,
+        chunk_size: int = _CONFIG_RESTORE_CHUNK_BYTES,
+        action_timeout: float = 20.0,
+        recovery_attempts: int = 120,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+        initial_delay: float = 1.0,
+    ) -> MaintenanceRecoveryResult:
+        """Restore a trusted configuration backup through the stock file CGI.
+
+        ACIY.3's frontend sends sequential raw `application/octet-stream`
+        POSTs to `/file.cgi?Action=Upload&file=restore_config`, using 1 MiB
+        chunks and no multipart wrapper or Content-Range header.
+
+        Configuration data is secret-bearing. The SDK never includes backup
+        bytes in diagnostics. A response containing `other error` is treated
+        as failure. The final upload is considered successful only after
+        management recovers and `boot_time` proves a new boot.
+        """
+
+        if not isinstance(backup, (bytes, bytearray, memoryview)):
+            raise TypeError("backup must be bytes-like")
+        payload = bytes(backup)
+        if not payload:
+            raise ValueError("backup must not be empty")
+        if len(payload) > _CONFIG_RESTORE_MAX_BYTES:
+            raise ValueError("backup exceeds the stock frontend 200 MiB limit")
+        if isinstance(chunk_size, bool) or not isinstance(chunk_size, int):
+            raise TypeError("chunk_size must be an int")
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be greater than zero")
+
+        self._validate_recovery_args(
+            action_timeout=action_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+            initial_delay=initial_delay,
+        )
+        before = self._read_boot_time(timeout=recovery_timeout)
+        params = {"Action": "Upload", "file": "restore_config"}
+        chunk_count = (len(payload) + chunk_size - 1) // chunk_size
+        final_action_error: NR2301Error | None = None
+
+        for index in range(chunk_count):
+            start = index * chunk_size
+            end = min(len(payload), start + chunk_size)
+            chunk = payload[start:end]
+            final_chunk = index + 1 == chunk_count
+            try:
+                response = self._client.transport.file_upload(
+                    chunk,
+                    params=params,
+                    timeout=action_timeout,
+                )
+            except TransportError as exc:
+                if not final_chunk:
+                    raise APIError(
+                        "configuration restore upload failed before final chunk",
+                        method_id="file.cgi/restore_config",
+                        response={
+                            "chunk_index": index,
+                            "chunk_count": chunk_count,
+                            "uploaded_bytes_before_failure": start,
+                            "error": type(exc).__name__,
+                        },
+                    ) from exc
+                final_action_error = exc
+                break
+
+            if b"other error" in response.lower():
+                raise APIError(
+                    "configuration restore was rejected by file.cgi",
+                    method_id="file.cgi/restore_config",
+                    response={
+                        "chunk_index": index,
+                        "chunk_count": chunk_count,
+                        "uploaded_bytes_before_failure": start,
+                    },
+                )
+
+        started = time.monotonic()
+        if initial_delay:
+            time.sleep(initial_delay)
+
+        last_boot: int | None = None
+        last_error: NR2301Error | None = None
+        outage_observed = final_action_error is not None
+
+        for attempt in range(recovery_attempts):
+            try:
+                current = self._read_boot_time(timeout=recovery_timeout)
+                last_boot = current
+                elapsed = time.monotonic() - started
+                if current < before or (
+                    outage_observed
+                    and current <= int(elapsed) + 10
+                    and before <= int(elapsed) + 10
+                ):
+                    result: MaintenanceRecoveryResult = {
+                        "boot_time_before": before,
+                        "boot_time_after": current,
+                        "outage_observed": outage_observed,
+                        "uploaded_bytes": len(payload),
+                        "chunk_count": chunk_count,
+                    }
+                    if final_action_error is not None:
+                        result["action_error"] = type(final_action_error).__name__
+                    return result
+            except NR2301Error as exc:
+                outage_observed = True
+                last_error = exc
+                last_error = self._try_relogin(last_error)
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "boot_time_before": before,
+            "boot_time_after": last_boot,
+            "outage_observed": outage_observed,
+            "uploaded_bytes": len(payload),
+            "chunk_count": chunk_count,
+        }
+        if final_action_error is not None:
+            details["action_error"] = type(final_action_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+
+        raise APIError(
+            "configuration restore could not be verified by recovery and boot_time reset",
+            method_id="file.cgi/restore_config",
+            response=details,
+        )
 
     def restart_web_server(
         self,

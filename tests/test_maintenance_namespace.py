@@ -261,3 +261,157 @@ def test_disruptive_maintenance_rejects_invalid_recovery_options(method_name, kw
         getattr(client.maintenance, method_name)(**kwargs)
 
     assert session.calls == []
+
+
+def test_download_config_backup_uses_stock_file_cgi_contract():
+    client, session = authenticated_client(
+        FakeResponse(content=b"opaque-secret-backup")
+    )
+
+    result = client.maintenance.download_config_backup(timeout=12)
+
+    assert result == b"opaque-secret-backup"
+    method, url, kwargs = session.calls[0]
+    assert method == "GET"
+    assert url == "http://zyxel.home/file.cgi"
+    assert kwargs["params"] == {
+        "Action": "Download",
+        "file": "backup_config",
+        "dl": "1",
+    }
+    assert kwargs["timeout"] == 12
+
+
+def test_download_config_backup_rejects_empty_file():
+    client, _ = authenticated_client(FakeResponse(content=b""))
+
+    with pytest.raises(Exception, match="returned no data"):
+        client.maintenance.download_config_backup()
+
+
+def test_restore_config_backup_uploads_sequential_raw_chunks_and_verifies_reboot():
+    client, session = authenticated_client(
+        {"boot_time": 5000, "result": 0},
+        FakeResponse(content=b"chunk-1-ok"),
+        FakeResponse(status_code=503),
+        {"boot_time": 7, "result": 0},
+    )
+
+    result = client.maintenance.restore_config_backup(
+        b"ABCDEFGH",
+        chunk_size=4,
+        action_timeout=6,
+        recovery_attempts=1,
+        recovery_delay=0,
+        recovery_timeout=2,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_before"] == 5000
+    assert result["boot_time_after"] == 7
+    assert result["uploaded_bytes"] == 8
+    assert result["chunk_count"] == 2
+    assert result["outage_observed"] is True
+    assert result["action_error"] == "TransportError"
+
+    assert [call[0] for call in session.calls] == ["GET", "POST", "POST", "GET"]
+
+    first_upload = session.calls[1]
+    second_upload = session.calls[2]
+    for call in (first_upload, second_upload):
+        _, url, kwargs = call
+        assert url == "http://zyxel.home/file.cgi"
+        assert kwargs["params"] == {
+            "Action": "Upload",
+            "file": "restore_config",
+        }
+        assert kwargs["headers"] == {
+            "Content-Type": "application/octet-stream"
+        }
+        assert "files" not in kwargs
+        assert "json" not in kwargs
+        assert "Content-Range" not in kwargs["headers"]
+
+    assert first_upload[2]["data"] == b"ABCD"
+    assert second_upload[2]["data"] == b"EFGH"
+
+
+def test_restore_config_backup_accepts_final_http_response_but_still_requires_reboot():
+    client, _ = authenticated_client(
+        {"boot_time": 5000, "result": 0},
+        FakeResponse(content=b"ok"),
+        {"boot_time": 6, "result": 0},
+    )
+
+    result = client.maintenance.restore_config_backup(
+        b"ABCD",
+        chunk_size=4,
+        recovery_attempts=1,
+        recovery_delay=0,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_after"] == 6
+    assert result["outage_observed"] is False
+
+
+def test_restore_config_backup_rejects_frontend_other_error_without_echoing_backup():
+    client, _ = authenticated_client(
+        {"boot_time": 5000, "result": 0},
+        FakeResponse(content=b'{"system_err":" other error"}'),
+    )
+
+    secret = b"DO-NOT-ECHO-CONFIG-BYTES"
+    with pytest.raises(APIError) as exc_info:
+        client.maintenance.restore_config_backup(
+            secret,
+            chunk_size=len(secret),
+            recovery_attempts=1,
+            recovery_delay=0,
+            initial_delay=0,
+        )
+
+    assert exc_info.value.method_id == "file.cgi/restore_config"
+    assert secret.decode() not in repr(exc_info.value.response)
+
+
+def test_restore_config_backup_requires_boot_time_reset():
+    client, _ = authenticated_client(
+        {"boot_time": 5000, "result": 0},
+        FakeResponse(content=b"ok"),
+        {"boot_time": 5001, "result": 0},
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        client.maintenance.restore_config_backup(
+            b"ABCD",
+            chunk_size=4,
+            recovery_attempts=1,
+            recovery_delay=0,
+            initial_delay=0,
+        )
+
+    assert exc_info.value.method_id == "file.cgi/restore_config"
+    assert exc_info.value.response["boot_time_before"] == 5000
+    assert exc_info.value.response["boot_time_after"] == 5001
+
+
+def test_restore_config_backup_validates_input_before_network_access(monkeypatch):
+    import nr2301.namespaces.maintenance as maintenance_module
+
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        client.maintenance.restore_config_backup(b"")
+
+    with pytest.raises(TypeError, match="bytes-like"):
+        client.maintenance.restore_config_backup("nope")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="chunk_size"):
+        client.maintenance.restore_config_backup(b"x", chunk_size=0)
+
+    monkeypatch.setattr(maintenance_module, "_CONFIG_RESTORE_MAX_BYTES", 3)
+    with pytest.raises(ValueError, match="200 MiB"):
+        client.maintenance.restore_config_backup(b"four")
+
+    assert session.calls == []
