@@ -209,6 +209,8 @@ class LANNamespace:
                 raise TypeError(f"{key} must be a str")
             payload[key] = value
 
+        self._validate_dhcp_payload(payload)
+
         current = self.dhcp(timeout=recovery_timeout)
         current_cmp = {key: current.get(key) for key in _REQUIRED_COMBINED_FIELDS}
         if current_cmp == payload:
@@ -841,6 +843,44 @@ class LANNamespace:
                 for key in ("dnsmode", "dns1", "dns2", "ipv6dns1", "ipv6dns2")
             },
         )
+
+    @staticmethod
+    def _validate_dhcp_payload(payload: Mapping[str, str]) -> None:
+        if payload["disabled"] not in {"0", "1"}:
+            raise ValueError("disabled must be '0' or '1'")
+
+        for field in ("lan_ip", "start", "end"):
+            _validate_ip(payload[field], version=4, field=field)
+
+        try:
+            ipaddress.IPv4Network(
+                f"0.0.0.0/{payload['lan_netmask']}",
+                strict=False,
+            )
+        except ValueError as exc:
+            raise ValueError("lan_netmask must be a valid IPv4 netmask") from exc
+
+        try:
+            lease = int(payload["leasetime"])
+        except ValueError as exc:
+            raise ValueError("leasetime must be an integer string") from exc
+        if lease < 60 or lease > 604800:
+            raise ValueError("leasetime must be between 60 and 604800 seconds")
+
+        try:
+            mtu = int(payload["mtu"])
+        except ValueError as exc:
+            raise ValueError("mtu must be an integer string") from exc
+        if mtu < 1280 or mtu > 1500:
+            raise ValueError("mtu must be between 1280 and 1500")
+
+        if payload["dnsmode"] not in {"auto", "manual"}:
+            raise ValueError("dnsmode must be 'auto' or 'manual'")
+
+        _validate_optional_ip(payload["dns1"], version=4, field="dns1")
+        _validate_optional_ip(payload["dns2"], version=4, field="dns2")
+        _validate_optional_ip(payload["ipv6dns1"], version=6, field="ipv6dns1")
+        _validate_optional_ip(payload["ipv6dns2"], version=6, field="ipv6dns2")
 
     @staticmethod
     def _normalize_reservation(item: Mapping[str, Any]) -> StaticReservation:
