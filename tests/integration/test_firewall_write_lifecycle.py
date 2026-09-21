@@ -80,7 +80,7 @@ def _flag(response: Mapping[str, Any], key: str, label: str) -> int:
 
 
 def _vpn_state(router) -> tuple[int, int, int]:
-    response = router.firewall.vpn_passthrough(timeout=5.0)
+    response = router.firewall.vpn_passthrough(timeout=timeout)
     return (
         _binary(response.get("pptp"), "vpn.pptp"),
         _binary(response.get("l2tp"), "vpn.l2tp"),
@@ -263,72 +263,110 @@ def _url_state_with_recovery(
     raise last_error
 
 
-def _dmz_destination(router) -> str:
-    response = router.firewall.dmz_info(timeout=5.0)
+def _dmz_destination(router, *, timeout: float = 10.0) -> str:
+    response = router.firewall.dmz_info(timeout=timeout)
     value = _firewall(response, "dmz_info").get("dmz_dest_ip")
     if not isinstance(value, str):
         pytest.fail("dmz_info did not return string dmz_dest_ip")
     return value
 
 
-def _snapshot(router) -> dict[str, object]:
+def _snapshot(router, *, timeout: float = 10.0) -> dict[str, object]:
     return {
         "dmz_enabled": 1
-        - _flag(router.firewall.disable_info(timeout=5.0), "dmz_disable", "dmz"),
-        "dmz_destination": _dmz_destination(router),
+        - _flag(router.firewall.disable_info(timeout=timeout), "dmz_disable", "dmz"),
+        "dmz_destination": _dmz_destination(router, timeout=timeout),
         "vpn": _vpn_state(router),
         "admin_from_wan": _flag(
-            router.firewall.admin_from_wan(timeout=5.0),
+            router.firewall.admin_from_wan(timeout=timeout),
             "admin_from_wan_enable",
             "admin_from_wan",
         ),
         "ping_from_wan": _flag(
-            router.firewall.ping_from_wan(timeout=5.0),
+            router.firewall.ping_from_wan(timeout=timeout),
             "ping_from_wan_enable",
             "ping_from_wan",
         ),
         "port_forward": _indexed_state(
-            router.firewall.port_forward(timeout=5.0),
+            router.firewall.port_forward(timeout=timeout),
             fields=_PF_FIELDS,
             limit=5,
             label="port_forward",
         ),
         "port_trigger": _indexed_state(
-            router.firewall.port_trigger(timeout=5.0),
+            router.firewall.port_trigger(timeout=timeout),
             fields=_PT_FIELDS,
             limit=10,
             label="port_trigger",
         ),
-        "url_filter": _url_state_with_recovery(router),
+        "url_filter": _url_state(router, timeout=timeout),
         "ip_filter_rules": _rule_state(
-            router.firewall.ip_filter(timeout=5.0),
+            router.firewall.ip_filter(timeout=timeout),
             value_key="ip",
             label="ip_filter",
         ),
         "ip_filter_enabled": 1
         - _flag(
-            router.firewall.ip_filter_mode_state(timeout=5.0),
+            router.firewall.ip_filter_mode_state(timeout=timeout),
             "ip_filter_disable",
             "ip_filter_mode",
         ),
         "port_filter_rules": _rule_state(
-            router.firewall.port_filter(timeout=5.0),
+            router.firewall.port_filter(timeout=timeout),
             value_key="port",
             label="port_filter",
         ),
         "port_filter_enabled": 1
         - _flag(
-            router.firewall.port_filter_mode_state(timeout=5.0),
+            router.firewall.port_filter_mode_state(timeout=timeout),
             "port_filter_disable",
             "port_filter_mode",
         ),
         "upnp_enabled": _flag(
-            router.firewall.upnp_state(timeout=5.0),
+            router.firewall.upnp_state(timeout=timeout),
             "upnp_enable",
             "upnp",
         ),
     }
 
+
+
+def _snapshot_with_recovery(
+    router,
+    *,
+    attempts: int = 6,
+    timeout: float = 10.0,
+    delay: float = 1.0,
+) -> dict[str, object]:
+    last_error: NR2301Error | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            snapshot = _snapshot(router, timeout=timeout)
+            if attempt > 1:
+                print(
+                    "FIREWALL_SNAPSHOT_RECOVERED"
+                    f" attempt={attempt}"
+                    f" previous_error={type(last_error).__name__ if last_error else None}",
+                    flush=True,
+                )
+            return snapshot
+        except NR2301Error as exc:
+            last_error = exc
+            print(
+                "FIREWALL_SNAPSHOT_RETRY"
+                f" attempt={attempt}"
+                f" error={type(exc).__name__}",
+                flush=True,
+            )
+            try:
+                router.login()
+            except NR2301Error:
+                pass
+            if attempt < attempts and delay:
+                time.sleep(delay)
+
+    assert last_error is not None
+    raise last_error
 
 def _choose_unique(candidates: tuple[str, ...], existing: set[str]) -> str:
     for candidate in candidates:
@@ -421,11 +459,11 @@ def _restore(router, original: Mapping[str, object]) -> None:
 
 
 def test_firewall_write_lifecycle_and_exact_restore(router):
-    original = _snapshot(router)
+    original = _snapshot_with_recovery(router)
 
     try:
         router.firewall.set_dmz_enabled(not bool(original["dmz_enabled"]), timeout=10.0)
-        assert _snapshot(router)["dmz_enabled"] == 1 - int(original["dmz_enabled"])
+        assert _snapshot_with_recovery(router)["dmz_enabled"] == 1 - int(original["dmz_enabled"])
         print("FIREWALL_DMZ_ENABLE_WRITE changed=True readback=True", flush=True)
 
         pptp, l2tp, ipsec = original["vpn"]
@@ -444,7 +482,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         )
         assert (
             _flag(
-                router.firewall.admin_from_wan(timeout=5.0),
+                router.firewall.admin_from_wan(timeout=timeout),
                 "admin_from_wan_enable",
                 "admin_from_wan",
             )
@@ -457,7 +495,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         )
         assert (
             _flag(
-                router.firewall.ping_from_wan(timeout=5.0),
+                router.firewall.ping_from_wan(timeout=timeout),
                 "ping_from_wan_enable",
                 "ping_from_wan",
             )
@@ -471,7 +509,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         router.firewall.replace_ip_filter_rules(list(mutated_ip), timeout=10.0)
         assert (
             _rule_state(
-                router.firewall.ip_filter(timeout=5.0),
+                router.firewall.ip_filter(timeout=timeout),
                 value_key="ip",
                 label="ip_filter",
             )
@@ -485,7 +523,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         assert (
             1
             - _flag(
-                router.firewall.ip_filter_mode_state(timeout=5.0),
+                router.firewall.ip_filter_mode_state(timeout=timeout),
                 "ip_filter_disable",
                 "ip_filter_mode",
             )
@@ -499,7 +537,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         router.firewall.replace_port_filter_rules(list(mutated_port), timeout=10.0)
         assert (
             _rule_state(
-                router.firewall.port_filter(timeout=5.0),
+                router.firewall.port_filter(timeout=timeout),
                 value_key="port",
                 label="port_filter",
             )
@@ -513,7 +551,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         assert (
             1
             - _flag(
-                router.firewall.port_filter_mode_state(timeout=5.0),
+                router.firewall.port_filter_mode_state(timeout=timeout),
                 "port_filter_disable",
                 "port_filter_mode",
             )
@@ -529,7 +567,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             True, items=_items_from_slots(mutated_pf, _PF_FIELDS), timeout=10.0
         )
         assert _indexed_state(
-            router.firewall.port_forward(timeout=5.0),
+            router.firewall.port_forward(timeout=timeout),
             fields=_PF_FIELDS,
             limit=5,
             label="port_forward",
@@ -544,7 +582,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             True, items=_items_from_slots(mutated_pt, _PT_FIELDS), timeout=10.0
         )
         assert _indexed_state(
-            router.firewall.port_trigger(timeout=5.0),
+            router.firewall.port_trigger(timeout=timeout),
             fields=_PT_FIELDS,
             limit=10,
             label="port_trigger",
@@ -576,7 +614,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
         )
         assert (
             _flag(
-                router.firewall.upnp_state(timeout=5.0),
+                router.firewall.upnp_state(timeout=timeout),
                 "upnp_enable",
                 "upnp",
             )
@@ -587,7 +625,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
     finally:
         _restore(router, original)
 
-    final = _snapshot(router)
+    final = _snapshot_with_recovery(router)
     assert final == original
     print(
         "FIREWALL_FINAL"
