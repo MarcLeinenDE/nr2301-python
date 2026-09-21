@@ -118,7 +118,7 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
     if not isinstance(lan_ip, str) or not isinstance(lan_netmask, str):
         pytest.fail("router_get_lan_ip returned invalid address fields")
 
-    mode = original_mode.get("mode")
+    mode = original_mode.get("work_mode")
     if mode not in {"router", "bridge"}:
         pytest.fail("router_get_work_mode returned an unknown mode")
 
@@ -196,7 +196,7 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
             recovery_delay=1.0,
             recovery_timeout=4.0,
         )
-        assert verified_mode.get("mode") == mode
+        assert verified_mode.get("work_mode") == mode
         print(
             "ROUTER_WORK_MODE_WRITE"
             f" force_same_state=True"
