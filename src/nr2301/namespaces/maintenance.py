@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 
 _TIME_RE = re.compile(r"^([0-9]{1,2}):([0-9]{1,2})$")
+_CONFIG_RESTORE_CHUNK_BYTES = 1024 * 1024
+_CONFIG_RESTORE_MAX_BYTES = 200 * 1024 * 1024
 
 
 class TimedRebootSettings(TypedDict, total=False):
@@ -121,7 +123,7 @@ class MaintenanceNamespace:
         self,
         backup: bytes | bytearray | memoryview,
         *,
-        chunk_size: int = 1024 * 1024,
+        chunk_size: int = _CONFIG_RESTORE_CHUNK_BYTES,
         action_timeout: float = 20.0,
         recovery_attempts: int = 120,
         recovery_delay: float = 1.0,
@@ -145,7 +147,7 @@ class MaintenanceNamespace:
         payload = bytes(backup)
         if not payload:
             raise ValueError("backup must not be empty")
-        if len(payload) > 200 * 1024 * 1024:
+        if len(payload) > _CONFIG_RESTORE_MAX_BYTES:
             raise ValueError("backup exceeds the stock frontend 200 MiB limit")
         if isinstance(chunk_size, bool) or not isinstance(chunk_size, int):
             raise TypeError("chunk_size must be an int")
