@@ -65,6 +65,12 @@ class LANAddressResponse(TypedDict, total=False):
     router: LANAddress
 
 
+class StaticReservation(TypedDict):
+    index: str
+    mac: str
+    ip: str
+
+
 class DNSSettings(TypedDict):
     """Verified DNS subset of the combined DHCP settings object."""
 
@@ -161,6 +167,271 @@ class LANNamespace:
             timeout=timeout,
         )
 
+    def set_dhcp_settings(
+        self,
+        settings: Mapping[str, Any],
+        *,
+        write_timeout: int = 30,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> DHCPSettings:
+        """Write the complete verified 12-field combined DHCP object.
+
+        Callers should start from `lan.dhcp()`, modify only intended fields,
+        then pass the full object here. The helper never invents missing values.
+        """
+
+        if not isinstance(settings, Mapping):
+            raise TypeError("settings must be a mapping")
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        payload: dict[str, str] = {}
+        missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in settings]
+        if missing:
+            raise ProtocolError(
+                "combined DHCP write requires all fields: " + ", ".join(missing)
+            )
+        for key in _REQUIRED_COMBINED_FIELDS:
+            value = settings[key]
+            if not isinstance(value, str):
+                raise TypeError(f"{key} must be a str")
+            payload[key] = value
+
+        current = self.dhcp(timeout=recovery_timeout)
+        current_cmp = {key: current.get(key) for key in _REQUIRED_COMBINED_FIELDS}
+        if current_cmp == payload:
+            return current
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.multicall(
+                [{
+                    "path": "router",
+                    "method": "router_set_dhcp_settings_comb",
+                    "data": payload,
+                    "timeout": write_timeout,
+                }],
+                timeout=float(write_timeout),
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: DHCPSettings | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.dhcp(timeout=recovery_timeout)
+                last_actual = actual
+                actual_cmp = {
+                    key: actual.get(key) for key in _REQUIRED_COMBINED_FIELDS
+                }
+                if actual_cmp == payload:
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected": payload,
+            "actual": (
+                {key: last_actual.get(key) for key in _REQUIRED_COMBINED_FIELDS}
+                if last_actual is not None else None
+            ),
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "combined DHCP write could not be verified by exact read-back",
+            method_id="router/router_set_dhcp_settings_comb",
+            response=details,
+        )
+
+    def static_reservation_list(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> list[StaticReservation]:
+        """Return normalized static DHCP reservation items."""
+
+        response = self.static_reservations(timeout=timeout)
+        dhcp = response.get("dhcp")
+        if not isinstance(dhcp, Mapping):
+            raise ProtocolError(
+                "router/router_get_dhcp_static_ip did not return a dhcp object"
+            )
+        raw = dhcp.get("data")
+        if not isinstance(raw, list):
+            raise ProtocolError(
+                "router/router_get_dhcp_static_ip did not return dhcp.data as a list"
+            )
+        result: list[StaticReservation] = []
+        for item in raw:
+            if not isinstance(item, Mapping):
+                raise ProtocolError("static DHCP reservation is not an object")
+            result.append(self._normalize_reservation(item))
+        return result
+
+    def set_static_reservations(
+        self,
+        reservations: list[Mapping[str, Any]],
+        *,
+        write_timeout: int = 30,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> list[StaticReservation]:
+        """Replace the complete 10-slot static DHCP reservation table."""
+
+        if not isinstance(reservations, list):
+            raise TypeError("reservations must be a list")
+        if len(reservations) > 10:
+            raise ValueError("the stock frontend supports at most 10 reservations")
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        expected = [self._normalize_reservation(item) for item in reservations]
+        indices = [item["index"] for item in expected]
+        if len(indices) != len(set(indices)):
+            raise ValueError("reservation indices must be unique")
+
+        current = self.static_reservation_list(timeout=recovery_timeout)
+        if self._reservation_cmp(current) == self._reservation_cmp(expected):
+            return current
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.multicall(
+                [{
+                    "path": "router",
+                    "method": "router_set_dhcp_static_ip",
+                    "data": {"data": expected},
+                    "timeout": write_timeout,
+                }],
+                timeout=float(write_timeout),
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: list[StaticReservation] | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.static_reservation_list(timeout=recovery_timeout)
+                last_actual = actual
+                if self._reservation_cmp(actual) == self._reservation_cmp(expected):
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected_count": len(expected),
+            "actual_count": len(last_actual) if last_actual is not None else None,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "static DHCP reservation write could not be verified by read-back",
+            method_id="router/router_set_dhcp_static_ip",
+            response=details,
+        )
+
+    def set_address_legacy(
+        self,
+        lan_ip: str,
+        lan_netmask: str,
+        *,
+        write_timeout: float = 30.0,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> LANAddressResponse:
+        """Use the deprecated dedicated LAN-address setter and require read-back."""
+
+        _validate_ip(lan_ip, version=4, field="lan_ip")
+        _validate_ip(lan_netmask, version=4, field="lan_netmask")
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        current = self.address(timeout=recovery_timeout)
+        router = current.get("router")
+        if isinstance(router, Mapping) and router.get("lan_ip") == lan_ip and router.get("lan_netmask") == lan_netmask:
+            return current
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.call(
+                "router",
+                "router_set_lan_ip",
+                data={"lan_ip": lan_ip, "lan_netmask": lan_netmask},
+                timeout=write_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: LANAddressResponse | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.address(timeout=recovery_timeout)
+                last_actual = actual
+                router = actual.get("router")
+                if isinstance(router, Mapping) and router.get("lan_ip") == lan_ip and router.get("lan_netmask") == lan_netmask:
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected": {"lan_ip": lan_ip, "lan_netmask": lan_netmask},
+            "actual": last_actual,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "legacy LAN address write could not be verified by read-back",
+            method_id="router/router_set_lan_ip",
+            response=details,
+        )
+
     def dns(self, *, timeout: float | None = None) -> DNSSettings:
         """Return the five DNS fields from the combined DHCP object."""
 
@@ -249,6 +520,62 @@ class LANNamespace:
         recovery_delay: float,
         recovery_timeout: float,
     ) -> DNSSettings:
+        before = self.dhcp()
+        payload: dict[str, Any] = dict(before)
+        payload.update(expected)
+        verified = self.set_dhcp_settings(
+            payload,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+        return cast(
+            DNSSettings,
+            {key: verified[key] for key in ("dnsmode", "dns1", "dns2", "ipv6dns1", "ipv6dns2")},
+        )
+
+    @staticmethod
+    def _normalize_reservation(item: Mapping[str, Any]) -> StaticReservation:
+        raw_index = item.get("index")
+        if isinstance(raw_index, bool):
+            raise TypeError("reservation index must be a string or integer")
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reservation index must be numeric") from exc
+        if index < 0 or index > 9:
+            raise ValueError("reservation index must be between 0 and 9")
+
+        mac = item.get("mac")
+        if not isinstance(mac, str):
+            raise TypeError("reservation mac must be a str")
+        parts = mac.split(":")
+        if len(parts) != 6 or any(len(part) != 2 or any(ch not in "0123456789abcdefABCDEF" for ch in part) for part in parts):
+            raise ValueError("reservation mac must be a colon-separated MAC address")
+
+        ip = item.get("ip")
+        if not isinstance(ip, str):
+            raise TypeError("reservation ip must be a str")
+        _validate_ip(ip, version=4, field="reservation ip")
+
+        return StaticReservation(index=str(index), mac=mac.lower(), ip=str(ipaddress.ip_address(ip)))
+
+    @staticmethod
+    def _reservation_cmp(items: list[StaticReservation]) -> list[tuple[str, str, str]]:
+        return sorted(
+            ((item["index"], item["mac"].lower(), item["ip"]) for item in items),
+            key=lambda value: int(value[0]),
+        )
+
+    @staticmethod
+    def _validate_recovery_options(
+        *,
+        write_timeout: float,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> None:
         if write_timeout <= 0:
             raise ValueError("write_timeout must be greater than zero")
         if recovery_attempts <= 0:
@@ -257,72 +584,6 @@ class LANNamespace:
             raise ValueError("recovery_delay must not be negative")
         if recovery_timeout <= 0:
             raise ValueError("recovery_timeout must be greater than zero")
-
-        before = self.dhcp()
-        missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in before]
-        if missing:
-            raise ProtocolError(
-                "refusing combined DHCP write because the read-back object is "
-                f"missing required fields: {', '.join(missing)}"
-            )
-
-        payload: dict[str, Any] = dict(before)
-        payload.update(expected)
-
-        write_error: NR2301Error | None = None
-        try:
-            self._client.multicall(
-                [
-                    {
-                        "path": "router",
-                        "method": "router_set_dhcp_settings_comb",
-                        "data": payload,
-                        "timeout": write_timeout,
-                    }
-                ],
-                timeout=float(write_timeout),
-            )
-        except (TransportError, ProtocolError) as exc:
-            # The documented write may reset management TCP. The write outcome
-            # is therefore determined by read-back, not by transport success.
-            write_error = exc
-
-        last_actual: DNSSettings | None = None
-        last_error: NR2301Error | None = None
-
-        for attempt in range(recovery_attempts):
-            try:
-                actual = self.dns(timeout=recovery_timeout)
-                last_actual = actual
-                if actual == expected:
-                    return actual
-            except NR2301Error as exc:
-                last_error = exc
-                if self._client.password is not None:
-                    try:
-                        self._client.login()
-                    except NR2301Error as login_exc:
-                        last_error = login_exc
-
-            if attempt + 1 < recovery_attempts and recovery_delay:
-                time.sleep(recovery_delay)
-
-        details: dict[str, Any] = {
-            "expected": dict(expected),
-            "actual": dict(last_actual) if last_actual is not None else None,
-        }
-        if write_error is not None:
-            details["write_transport_error"] = type(write_error).__name__
-        if last_error is not None:
-            details["last_recovery_error"] = type(last_error).__name__
-
-        raise APIError(
-            "DNS write could not be verified by exact read-back; "
-            "the router state may be unchanged or the management connection "
-            "may still be recovering",
-            method_id="router/router_set_dhcp_settings_comb",
-            response=details,
-        )
 
     @staticmethod
     def _extract_dhcp(response: Mapping[str, Any]) -> Mapping[str, Any]:
