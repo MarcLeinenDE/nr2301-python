@@ -312,6 +312,8 @@ def test_restore_config_backup_uploads_sequential_raw_chunks_and_verifies_reboot
     assert result["uploaded_bytes"] == 8
     assert result["chunk_count"] == 2
     assert result["outage_observed"] is True
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is False
     assert result["action_error"] == "TransportError"
 
     assert [call[0] for call in session.calls] == ["GET", "POST", "POST", "GET"]
@@ -353,6 +355,8 @@ def test_restore_config_backup_accepts_final_http_response_but_still_requires_re
 
     assert result["boot_time_after"] == 6
     assert result["outage_observed"] is False
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is False
 
 
 def test_restore_config_backup_rejects_frontend_other_error_without_echoing_backup():
@@ -445,6 +449,8 @@ def test_factory_reset_uses_bodyless_get_switches_to_factory_password_and_verifi
     assert result["boot_time_after"] == 12
     assert result["outage_observed"] is True
     assert result["action_error"] == "TransportError"
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is True
     assert client.password == "factory-secret"
     assert login_passwords == ["factory-secret"]
 
@@ -496,6 +502,8 @@ def test_restore_config_backup_can_switch_to_restored_password_for_recovery(monk
     )
 
     assert result["boot_time_after"] == 8
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is True
     assert client.password == "original-secret"
     assert login_passwords == ["original-secret"]
     assert "original-secret" not in repr(result)
@@ -511,3 +519,27 @@ def test_restore_config_backup_rejects_empty_recovery_password_before_upload():
         )
 
     assert session.calls == []
+
+
+def test_restore_config_backup_can_verify_reboot_when_pre_action_uptime_is_also_fresh(monkeypatch):
+    client, _ = authenticated_client(
+        {"boot_time": 51, "result": 0},
+        FakeResponse(status_code=503),
+        {"boot_time": 58, "result": 0},
+    )
+
+    timeline = iter([0.0, 55.0])
+    monkeypatch.setattr("nr2301.namespaces.maintenance.time.monotonic", lambda: next(timeline))
+
+    result = client.maintenance.restore_config_backup(
+        b"ABCD",
+        chunk_size=4,
+        recovery_attempts=1,
+        recovery_delay=0,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_before"] == 51
+    assert result["boot_time_after"] == 58
+    assert result["reboot_evidence"] == "outage_plus_fresh_uptime"
+    assert result["outage_observed"] is True
