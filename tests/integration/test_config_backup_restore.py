@@ -41,17 +41,26 @@ def router():
 def _stable_config_snapshot(router):
     """Read only stable configuration state; exclude dynamic runtime/radio data."""
 
-    return {
-        "ui_language": router.device.ui_language(timeout=5.0),
-        "work_mode": router.device.work_mode(timeout=5.0),
-        "sleep_wait_time": router.device.sleep_wait_time(timeout=5.0),
-        "timed_reboot": router.maintenance.timed_reboot(timeout=5.0),
-        "dns": router.lan.dns(timeout=5.0),
-        "upnp": router.firewall.upnp_state(timeout=5.0),
-        "vpn_passthrough": router.firewall.vpn_passthrough(timeout=5.0),
-        "ping_from_wan": router.firewall.ping_from_wan(timeout=5.0),
-        "admin_from_wan": router.firewall.admin_from_wan(timeout=5.0),
+    readers = {
+        "ui_language": lambda: router.device.ui_language(timeout=5.0),
+        "work_mode": lambda: router.device.work_mode(timeout=5.0),
+        "sleep_wait_time": lambda: router.device.sleep_wait_time(timeout=5.0),
+        "timed_reboot": lambda: router.maintenance.timed_reboot(timeout=5.0),
+        "dns": lambda: router.lan.dns(timeout=5.0),
+        "upnp": lambda: router.firewall.upnp_state(timeout=5.0),
+        "vpn_passthrough": lambda: router.firewall.vpn_passthrough(timeout=5.0),
+        "ping_from_wan": lambda: router.firewall.ping_from_wan(timeout=5.0),
+        "admin_from_wan": lambda: router.firewall.admin_from_wan(timeout=5.0),
     }
+
+    snapshot = {}
+    for name, reader in readers.items():
+        try:
+            snapshot[name] = reader()
+        except NR2301Error as exc:
+            setattr(exc, "_nr2301_snapshot_field", name)
+            raise
+    return snapshot
 
 
 def _stable_config_snapshot_with_recovery(
@@ -79,6 +88,7 @@ def _stable_config_snapshot_with_recovery(
             print(
                 "CONFIG_API_NOT_READY"
                 f" attempt={attempt}"
+                f" field={getattr(exc, '_nr2301_snapshot_field', 'unknown')}"
                 f" error={type(exc).__name__}",
                 flush=True,
             )
