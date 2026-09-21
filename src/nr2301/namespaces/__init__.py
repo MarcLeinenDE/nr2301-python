@@ -1,3 +1,4 @@
+from .account import AccountInfo, AccountNamespace
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from .ddns import DDNSNamespace, DDNSSettings
@@ -123,6 +124,8 @@ from .wifi import (
 )
 
 __all__ = [
+    "AccountInfo",
+    "AccountNamespace",
     "APSection",
     "AvailableNetworkModes",
     "BatteryInfo",
