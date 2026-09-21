@@ -87,8 +87,7 @@ class UILanguage(TypedDict, total=False):
 
 
 class WorkMode(TypedDict, total=False):
-    mode: str
-    result: int
+    work_mode: str
 
 
 class BatteryInfo(TypedDict, total=False):
@@ -383,10 +382,11 @@ class DeviceNamespace:
 
     @staticmethod
     def _work_mode_code(response: WorkMode) -> str:
-        value: Any = response.get("mode")
+        value: Any = response.get("work_mode")
         if not isinstance(value, str) or not value:
             raise ProtocolError(
-                "router/router_get_work_mode did not return a non-empty mode string"
+                "router/router_get_work_mode did not return a non-empty "
+                "work_mode string"
             )
         return value
 
