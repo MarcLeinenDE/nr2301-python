@@ -284,7 +284,7 @@ def test_set_dhcp_settings_rejects_partial_or_non_string_fields():
     incomplete.pop("mtu")
     client, session = authenticated_client([])
 
-    with pytest.raises(ProtocolError, match="requires all fields"):
+    with pytest.raises(ProtocolError, match="missing required fields"):
         client.lan.set_dhcp_settings(incomplete)
 
     wrong_type = dict(dhcp_payload()["dhcp"])
