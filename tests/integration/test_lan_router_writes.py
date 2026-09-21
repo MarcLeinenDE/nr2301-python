@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 
 import pytest
@@ -65,40 +66,74 @@ def _reservation_fingerprint(items):
     )
 
 
-def _synthetic_reservation(original):
+def _synthetic_reservation(original, dhcp):
     used_indices = {int(item["index"]) for item in original}
     free = next((index for index in range(10) if index not in used_indices), None)
 
-    candidates = [
-        ("02:00:00:00:00:fe", "192.0.2.254"),
-        ("02:00:00:00:00:fd", "192.0.2.253"),
-    ]
+    lan_ip = ipaddress.IPv4Address(dhcp["lan_ip"])
+    network = ipaddress.IPv4Network(
+        f"{dhcp['lan_ip']}/{dhcp['lan_netmask']}",
+        strict=False,
+    )
+    pool_start = ipaddress.IPv4Address(dhcp["start"])
+    pool_end = ipaddress.IPv4Address(dhcp["end"])
+    used_ips = {
+        ipaddress.IPv4Address(item["ip"])
+        for item in original
+    }
+
+    candidate_ip = None
+    lower = int(network.network_address) + 1
+    upper = int(network.broadcast_address) - 1
+    for raw in range(upper, lower - 1, -1):
+        candidate = ipaddress.IPv4Address(raw)
+        if candidate == lan_ip:
+            continue
+        if candidate in used_ips:
+            continue
+        if pool_start <= candidate <= pool_end:
+            continue
+        candidate_ip = str(candidate)
+        break
+
+    if candidate_ip is None:
+        raise AssertionError(
+            "no free static-reservation address exists inside the LAN subnet "
+            "and outside the DHCP pool"
+        )
+
+    used_macs = {str(item["mac"]).lower() for item in original}
+    mac = next(
+        (
+            candidate
+            for candidate in (
+                "02:00:00:00:00:fe",
+                "02:00:00:00:00:fd",
+                "02:00:00:00:00:fc",
+            )
+            if candidate not in used_macs
+        ),
+        None,
+    )
+    if mac is None:
+        raise AssertionError("could not construct a distinct synthetic MAC")
 
     if free is not None:
-        for mac, ip in candidates:
-            candidate = {"index": str(free), "mac": mac, "ip": ip}
-            if candidate not in original:
-                return original + [candidate]
+        candidate = {"index": free, "mac": mac, "ip": candidate_ip}
+        return [dict(item) for item in original] + [candidate]
 
     # All slots occupied: temporarily replace the highest slot. The complete
     # original table is restored in finally.
     target = max(original, key=lambda item: int(item["index"]))
-    for mac, ip in candidates:
-        candidate = {
-            "index": str(target["index"]),
-            "mac": mac,
-            "ip": ip,
-        }
-        if (
-            str(target["mac"]).lower() != mac
-            or str(target["ip"]) != ip
-        ):
-            return [
-                candidate if item["index"] == target["index"] else dict(item)
-                for item in original
-            ]
-
-    raise AssertionError("could not construct a distinct synthetic reservation")
+    candidate = {
+        "index": int(target["index"]),
+        "mac": mac,
+        "ip": candidate_ip,
+    }
+    return [
+        candidate if int(item["index"]) == int(target["index"]) else dict(item)
+        for item in original
+    ]
 
 
 def test_lan_router_write_lifecycle_and_exact_restore(router):
@@ -127,7 +162,8 @@ def test_lan_router_write_lifecycle_and_exact_restore(router):
         "43200" if original_dhcp.get("leasetime") != "43200" else "86400"
     )
     synthetic_reservations = _synthetic_reservation(
-        [dict(item) for item in original_reservations]
+        [dict(item) for item in original_reservations],
+        original_dhcp,
     )
 
     dhcp_attempted = False
