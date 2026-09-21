@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-from ..exceptions import APIError, ProtocolError
+from ..exceptions import APIError, NR2301Error, ProtocolError, TransportError
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
@@ -86,8 +87,7 @@ class UILanguage(TypedDict, total=False):
 
 
 class WorkMode(TypedDict, total=False):
-    mode: str
-    result: int
+    work_mode: str
 
 
 class BatteryInfo(TypedDict, total=False):
@@ -180,6 +180,94 @@ class DeviceNamespace:
         return cast(
             WorkMode,
             self._client.call("router", "router_get_work_mode", timeout=timeout),
+        )
+
+    def set_work_mode(
+        self,
+        mode: str,
+        *,
+        write_timeout: int = 30,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+        force: bool = False,
+    ) -> WorkMode:
+        """Set router/bridge work mode through the verified multicall setter.
+
+        Changing work mode can fundamentally alter addressing and management
+        reachability. A lost write response is therefore inconclusive; success
+        requires recovery plus exact getter read-back.
+
+        `force=True` executes the setter even when the current mode already
+        matches, which is useful for explicit transport verification.
+        """
+
+        if mode not in {"router", "bridge"}:
+            raise ValueError("mode must be 'router' or 'bridge'")
+        if write_timeout <= 0:
+            raise ValueError("write_timeout must be greater than zero")
+        if recovery_attempts <= 0:
+            raise ValueError("recovery_attempts must be greater than zero")
+        if recovery_delay < 0:
+            raise ValueError("recovery_delay must not be negative")
+        if recovery_timeout <= 0:
+            raise ValueError("recovery_timeout must be greater than zero")
+        if not isinstance(force, bool):
+            raise TypeError("force must be a bool")
+
+        current = self.work_mode(timeout=recovery_timeout)
+        current_mode = self._work_mode_code(current)
+        if current_mode == mode and not force:
+            return current
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.multicall(
+                [
+                    {
+                        "path": "router",
+                        "method": "router_set_work_mode",
+                        "data": {"work_mode": mode},
+                        "timeout": write_timeout,
+                    }
+                ],
+                timeout=float(write_timeout),
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: str | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                verified = self.work_mode(timeout=recovery_timeout)
+                last_actual = self._work_mode_code(verified)
+                if last_actual == mode:
+                    return verified
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected": mode,
+            "actual": last_actual,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+
+        raise APIError(
+            "router work-mode write could not be verified by exact read-back",
+            method_id="router/router_set_work_mode",
+            response=details,
         )
 
     def set_ui_language(
@@ -291,6 +379,16 @@ class DeviceNamespace:
                 response={"expected": minutes, "actual": actual},
             )
         return verified
+
+    @staticmethod
+    def _work_mode_code(response: WorkMode) -> str:
+        value: Any = response.get("work_mode")
+        if not isinstance(value, str) or not value:
+            raise ProtocolError(
+                "router/router_get_work_mode did not return a non-empty "
+                "work_mode string"
+            )
+        return value
 
     @staticmethod
     def _ui_language_code(response: UILanguage) -> str:

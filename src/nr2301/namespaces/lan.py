@@ -65,6 +65,12 @@ class LANAddressResponse(TypedDict, total=False):
     router: LANAddress
 
 
+class StaticReservation(TypedDict):
+    index: int
+    mac: str
+    ip: str
+
+
 class DNSSettings(TypedDict):
     """Verified DNS subset of the combined DHCP settings object."""
 
@@ -161,6 +167,235 @@ class LANNamespace:
             timeout=timeout,
         )
 
+    def set_dhcp_settings(
+        self,
+        settings: Mapping[str, Any],
+        *,
+        write_timeout: int = 30,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> DHCPSettings:
+        """Write the complete verified 12-field combined DHCP object.
+
+        Start from `lan.dhcp()`, modify only intended fields, then pass the
+        complete object here. Missing values are never invented.
+        """
+
+        payload = self._normalize_dhcp_payload(settings)
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        current = self.dhcp(timeout=recovery_timeout)
+        return self._write_dhcp_payload(
+            payload,
+            current=current,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+    def static_reservation_list(
+        self,
+        *,
+        timeout: float | None = None,
+    ) -> list[StaticReservation]:
+        """Return normalized static DHCP reservation items."""
+
+        response = self.static_reservations(timeout=timeout)
+        dhcp = response.get("dhcp")
+        if not isinstance(dhcp, Mapping):
+            raise ProtocolError(
+                "router/router_get_dhcp_static_ip did not return a dhcp object"
+            )
+        raw = dhcp.get("data")
+        if not isinstance(raw, list):
+            raise ProtocolError(
+                "router/router_get_dhcp_static_ip did not return dhcp.data as a list"
+            )
+        result: list[StaticReservation] = []
+        for item in raw:
+            if not isinstance(item, Mapping):
+                raise ProtocolError("static DHCP reservation is not an object")
+            result.append(self._normalize_reservation(item))
+        return result
+
+    def set_static_reservations(
+        self,
+        reservations: list[Mapping[str, Any]],
+        *,
+        write_timeout: int = 30,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+    ) -> list[StaticReservation]:
+        """Replace the complete 10-slot static DHCP reservation table."""
+
+        if not isinstance(reservations, list):
+            raise TypeError("reservations must be a list")
+        if len(reservations) > 10:
+            raise ValueError("the stock frontend supports at most 10 reservations")
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        expected = [self._normalize_reservation(item) for item in reservations]
+        indices = [item["index"] for item in expected]
+        if len(indices) != len(set(indices)):
+            raise ValueError("reservation indices must be unique")
+
+        macs = [item["mac"].lower() for item in expected]
+        if len(macs) != len(set(macs)):
+            raise ValueError("reservation MAC addresses must be unique")
+        ips = [item["ip"] for item in expected]
+        if len(ips) != len(set(ips)):
+            raise ValueError("reservation IPv4 addresses must be unique")
+
+        address = self.address(timeout=recovery_timeout)
+        self._validate_reservations_against_lan(expected, address)
+
+        current = self.static_reservation_list(timeout=recovery_timeout)
+        if self._reservation_cmp(current) == self._reservation_cmp(expected):
+            return current
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.multicall(
+                [{
+                    "path": "router",
+                    "method": "router_set_dhcp_static_ip",
+                    "data": {"data": expected},
+                    "timeout": write_timeout,
+                }],
+                timeout=float(write_timeout),
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: list[StaticReservation] | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.static_reservation_list(timeout=recovery_timeout)
+                last_actual = actual
+                if self._reservation_cmp(actual) == self._reservation_cmp(expected):
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected_count": len(expected),
+            "actual_count": len(last_actual) if last_actual is not None else None,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "static DHCP reservation write could not be verified by read-back",
+            method_id="router/router_set_dhcp_static_ip",
+            response=details,
+        )
+
+    def set_address_legacy(
+        self,
+        lan_ip: str,
+        lan_netmask: str,
+        *,
+        write_timeout: float = 30.0,
+        recovery_attempts: int = 10,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 3.0,
+        force: bool = False,
+    ) -> LANAddressResponse:
+        """Use the deprecated dedicated LAN-address setter and require read-back.
+
+        `force=True` is intended for explicit transport verification when the
+        caller wants to execute the setter even though the requested address
+        already matches the current state.
+        """
+
+        _validate_ip(lan_ip, version=4, field="lan_ip")
+        _validate_ip(lan_netmask, version=4, field="lan_netmask")
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+
+        if not isinstance(force, bool):
+            raise TypeError("force must be a bool")
+
+        current = self.address(timeout=recovery_timeout)
+        router = current.get("router")
+        if (
+            not force
+            and isinstance(router, Mapping)
+            and router.get("lan_ip") == lan_ip
+            and router.get("lan_netmask") == lan_netmask
+        ):
+            return current
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.call(
+                "router",
+                "router_set_lan_ip",
+                data={"lan_ip": lan_ip, "lan_netmask": lan_netmask},
+                timeout=write_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: LANAddressResponse | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.address(timeout=recovery_timeout)
+                last_actual = actual
+                router = actual.get("router")
+                if isinstance(router, Mapping) and router.get("lan_ip") == lan_ip and router.get("lan_netmask") == lan_netmask:
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected": {"lan_ip": lan_ip, "lan_netmask": lan_netmask},
+            "actual": last_actual,
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "legacy LAN address write could not be verified by read-back",
+            method_id="router/router_set_lan_ip",
+            response=details,
+        )
+
     def dns(self, *, timeout: float | None = None) -> DNSSettings:
         """Return the five DNS fields from the combined DHCP object."""
 
@@ -249,25 +484,47 @@ class LANNamespace:
         recovery_delay: float,
         recovery_timeout: float,
     ) -> DNSSettings:
-        if write_timeout <= 0:
-            raise ValueError("write_timeout must be greater than zero")
-        if recovery_attempts <= 0:
-            raise ValueError("recovery_attempts must be greater than zero")
-        if recovery_delay < 0:
-            raise ValueError("recovery_delay must not be negative")
-        if recovery_timeout <= 0:
-            raise ValueError("recovery_timeout must be greater than zero")
-
         before = self.dhcp()
-        missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in before]
-        if missing:
-            raise ProtocolError(
-                "refusing combined DHCP write because the read-back object is "
-                f"missing required fields: {', '.join(missing)}"
-            )
-
         payload: dict[str, Any] = dict(before)
         payload.update(expected)
+        normalized = self._normalize_dhcp_payload(payload)
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+        verified = self._write_dhcp_payload(
+            normalized,
+            current=before,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+        return cast(
+            DNSSettings,
+            {
+                key: verified[key]
+                for key in ("dnsmode", "dns1", "dns2", "ipv6dns1", "ipv6dns2")
+            },
+        )
+
+    def _write_dhcp_payload(
+        self,
+        payload: dict[str, str],
+        *,
+        current: Mapping[str, Any],
+        write_timeout: int,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> DHCPSettings:
+        current_cmp = {
+            key: current.get(key) for key in _REQUIRED_COMBINED_FIELDS
+        }
+        if current_cmp == payload:
+            return cast(DHCPSettings, dict(current))
 
         write_error: NR2301Error | None = None
         try:
@@ -283,18 +540,18 @@ class LANNamespace:
                 timeout=float(write_timeout),
             )
         except (TransportError, ProtocolError) as exc:
-            # The documented write may reset management TCP. The write outcome
-            # is therefore determined by read-back, not by transport success.
             write_error = exc
 
-        last_actual: DNSSettings | None = None
+        last_actual: DHCPSettings | None = None
         last_error: NR2301Error | None = None
-
         for attempt in range(recovery_attempts):
             try:
-                actual = self.dns(timeout=recovery_timeout)
+                actual = self.dhcp(timeout=recovery_timeout)
                 last_actual = actual
-                if actual == expected:
+                actual_cmp = {
+                    key: actual.get(key) for key in _REQUIRED_COMBINED_FIELDS
+                }
+                if actual_cmp == payload:
                     return actual
             except NR2301Error as exc:
                 last_error = exc
@@ -308,8 +565,15 @@ class LANNamespace:
                 time.sleep(recovery_delay)
 
         details: dict[str, Any] = {
-            "expected": dict(expected),
-            "actual": dict(last_actual) if last_actual is not None else None,
+            "expected": payload,
+            "actual": (
+                {
+                    key: last_actual.get(key)
+                    for key in _REQUIRED_COMBINED_FIELDS
+                }
+                if last_actual is not None
+                else None
+            ),
         }
         if write_error is not None:
             details["write_transport_error"] = type(write_error).__name__
@@ -317,12 +581,185 @@ class LANNamespace:
             details["last_recovery_error"] = type(last_error).__name__
 
         raise APIError(
-            "DNS write could not be verified by exact read-back; "
-            "the router state may be unchanged or the management connection "
-            "may still be recovering",
+            "combined DHCP write could not be verified by exact read-back",
             method_id="router/router_set_dhcp_settings_comb",
             response=details,
         )
+
+    @classmethod
+    def _normalize_dhcp_payload(
+        cls,
+        settings: Mapping[str, Any],
+    ) -> dict[str, str]:
+        if not isinstance(settings, Mapping):
+            raise TypeError("settings must be a mapping")
+
+        missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in settings]
+        if missing:
+            raise ProtocolError(
+                "refusing combined DHCP write because the read-back object is "
+                "missing required fields: " + ", ".join(missing)
+            )
+
+        payload: dict[str, str] = {}
+        for key in _REQUIRED_COMBINED_FIELDS:
+            value = settings[key]
+            if not isinstance(value, str):
+                raise TypeError(f"{key} must be a str")
+            payload[key] = value
+
+        cls._validate_dhcp_payload(payload)
+        return payload
+
+    @staticmethod
+    def _validate_dhcp_payload(payload: Mapping[str, str]) -> None:
+        if payload["disabled"] not in {"0", "1"}:
+            raise ValueError("disabled must be '0' or '1'")
+
+        for field in ("lan_ip", "start", "end"):
+            _validate_ip(payload[field], version=4, field=field)
+
+        try:
+            ipaddress.IPv4Network(
+                f"0.0.0.0/{payload['lan_netmask']}",
+                strict=False,
+            )
+        except ValueError as exc:
+            raise ValueError("lan_netmask must be a valid IPv4 netmask") from exc
+
+        try:
+            lease = int(payload["leasetime"])
+        except ValueError as exc:
+            raise ValueError("leasetime must be an integer string") from exc
+        if lease < 60 or lease > 604800:
+            raise ValueError("leasetime must be between 60 and 604800 seconds")
+
+        try:
+            mtu = int(payload["mtu"])
+        except ValueError as exc:
+            raise ValueError("mtu must be an integer string") from exc
+        if mtu < 1280 or mtu > 1500:
+            raise ValueError("mtu must be between 1280 and 1500")
+
+        if payload["dnsmode"] not in {"auto", "manual"}:
+            raise ValueError("dnsmode must be 'auto' or 'manual'")
+
+        _validate_optional_ip(payload["dns1"], version=4, field="dns1")
+        _validate_optional_ip(payload["dns2"], version=4, field="dns2")
+        _validate_optional_ip(payload["ipv6dns1"], version=6, field="ipv6dns1")
+        _validate_optional_ip(payload["ipv6dns2"], version=6, field="ipv6dns2")
+
+    @staticmethod
+    def _normalize_reservation(item: Mapping[str, Any]) -> StaticReservation:
+        raw_index = item.get("index")
+        if isinstance(raw_index, bool):
+            raise TypeError("reservation index must be a string or integer")
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reservation index must be numeric") from exc
+        if index < 0 or index > 9:
+            raise ValueError("reservation index must be between 0 and 9")
+
+        mac = item.get("mac")
+        if not isinstance(mac, str):
+            raise TypeError("reservation mac must be a str")
+
+        # ACIY.3 accepts colon-separated MACs on write but live getter
+        # read-back canonicalizes the same value to uppercase hyphen-separated
+        # form. Accept either representation and expose one stable SDK form.
+        separator = ":" if ":" in mac else "-" if "-" in mac else None
+        parts = mac.split(separator) if separator is not None else []
+        if (
+            len(parts) != 6
+            or any(
+                len(part) != 2
+                or any(ch not in "0123456789abcdefABCDEF" for ch in part)
+                for part in parts
+            )
+        ):
+            raise ValueError(
+                "reservation mac must be a colon- or hyphen-separated MAC address"
+            )
+
+        ip = item.get("ip")
+        if not isinstance(ip, str):
+            raise TypeError("reservation ip must be a str")
+        _validate_ip(ip, version=4, field="reservation ip")
+
+        normalized_mac = ":".join(part.lower() for part in parts)
+        first_octet = int(parts[0], 16)
+        if first_octet & 1:
+            raise ValueError("reservation mac must not be multicast")
+
+        return StaticReservation(
+            index=index,
+            mac=normalized_mac,
+            ip=str(ipaddress.ip_address(ip)),
+        )
+
+    @staticmethod
+    def _validate_reservations_against_lan(
+        items: list[StaticReservation],
+        address: Mapping[str, Any],
+    ) -> None:
+        router = address.get("router")
+        if not isinstance(router, Mapping):
+            raise ProtocolError(
+                "router/router_get_lan_ip did not return a router object"
+            )
+        lan_ip = router.get("lan_ip")
+        lan_netmask = router.get("lan_netmask")
+        if not isinstance(lan_ip, str) or not isinstance(lan_netmask, str):
+            raise ProtocolError(
+                "router/router_get_lan_ip did not return usable LAN address fields"
+            )
+        try:
+            network = ipaddress.IPv4Network(
+                f"{lan_ip}/{lan_netmask}",
+                strict=False,
+            )
+        except ValueError as exc:
+            raise ProtocolError(
+                "router/router_get_lan_ip returned an invalid LAN/network pair"
+            ) from exc
+
+        for item in items:
+            candidate = ipaddress.IPv4Address(item["ip"])
+            if candidate not in network:
+                raise ValueError(
+                    f"reservation ip {item['ip']} must be inside current LAN subnet "
+                    f"{network.with_netmask}"
+                )
+
+    @staticmethod
+    def _reservation_cmp(
+        items: list[StaticReservation],
+    ) -> list[tuple[int, str, str]]:
+        return sorted(
+            (
+                (item["index"], item["mac"].lower(), item["ip"])
+                for item in items
+            ),
+            key=lambda value: value[0],
+        )
+
+    @staticmethod
+    def _validate_recovery_options(
+        *,
+        write_timeout: float,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> None:
+        if write_timeout <= 0:
+            raise ValueError("write_timeout must be greater than zero")
+        if recovery_attempts <= 0:
+            raise ValueError("recovery_attempts must be greater than zero")
+        if recovery_delay < 0:
+            raise ValueError("recovery_delay must not be negative")
+        if recovery_timeout <= 0:
+            raise ValueError("recovery_timeout must be greater than zero")
 
     @staticmethod
     def _extract_dhcp(response: Mapping[str, Any]) -> Mapping[str, Any]:

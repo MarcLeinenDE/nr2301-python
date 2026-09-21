@@ -65,7 +65,7 @@ def test_device_internet_preserves_documented_raw_access_value():
 
 
 def test_work_mode_preserves_unknown_raw_mode_without_coercion():
-    payload = {"mode": "future-mode", "result": 0}
+    payload = {"work_mode": "future-mode"}
     client, _ = authenticated_client(payload)
 
     assert client.device.work_mode() == payload
@@ -210,3 +210,81 @@ def test_set_sleep_wait_time_raises_when_readback_does_not_match():
 
     assert exc_info.value.method_id == "aoc/set_sleep_wait_time"
     assert exc_info.value.response == {"expected": 20, "actual": 30}
+
+
+
+def test_set_work_mode_uses_verified_multicall_and_readback():
+    client, session = authenticated_client(
+        {"work_mode": "router"},
+        {"responses": [{"result": 0}]},
+        {"work_mode": "bridge"},
+    )
+
+    result = client.device.set_work_mode(
+        "bridge",
+        recovery_attempts=1,
+    )
+
+    assert result == {"work_mode": "bridge"}
+    assert [call[0] for call in session.calls] == ["GET", "POST", "GET"]
+    _, _, kwargs = session.calls[1]
+    assert kwargs["params"] == {"multicalls": 1}
+    assert kwargs["json"] == {
+        "requests": [
+            {
+                "path": "router",
+                "method": "router_set_work_mode",
+                "data": {"work_mode": "bridge"},
+                "timeout": 30,
+            }
+        ]
+    }
+
+
+def test_set_work_mode_force_executes_same_state_write():
+    client, session = authenticated_client(
+        {"work_mode": "router"},
+        {"responses": [{"result": 0}]},
+        {"work_mode": "router"},
+    )
+
+    result = client.device.set_work_mode(
+        "router",
+        force=True,
+        recovery_attempts=1,
+    )
+
+    assert result["work_mode"] == "router"
+    assert [call[0] for call in session.calls] == ["GET", "POST", "GET"]
+
+
+def test_set_work_mode_uses_readback_after_transport_failure():
+    client, _ = authenticated_client(
+        {"work_mode": "router"},
+        FakeResponse({}, status_code=500),
+        {"work_mode": "bridge"},
+    )
+
+    result = client.device.set_work_mode(
+        "bridge",
+        recovery_attempts=1,
+    )
+
+    assert result["work_mode"] == "bridge"
+
+
+def test_set_work_mode_same_state_without_force_avoids_write():
+    client, session = authenticated_client({"work_mode": "router"})
+
+    assert client.device.set_work_mode("router")["work_mode"] == "router"
+    assert [call[0] for call in session.calls] == ["GET"]
+
+
+@pytest.mark.parametrize("mode", ["", "Router", "modem", "invalid"])
+def test_set_work_mode_rejects_unknown_mode_before_network(mode):
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="router.*bridge"):
+        client.device.set_work_mode(mode)
+
+    assert session.calls == []

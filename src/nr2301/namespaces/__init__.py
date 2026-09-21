@@ -43,6 +43,7 @@ from .lan import (
     LANAddress,
     LANAddressResponse,
     LANNamespace,
+    StaticReservation,
 )
 from .maintenance import MaintenanceNamespace, MaintenanceRecoveryResult, TimedRebootSettings
 from .mobile import (
@@ -215,6 +216,7 @@ __all__ = [
     "SMSSendResult",
     "SignalInfo",
     "SleepWaitTime",
+    "StaticReservation",
     "StatisticsNamespace",
     "TimedRebootSettings",
     "TrafficCounters",
