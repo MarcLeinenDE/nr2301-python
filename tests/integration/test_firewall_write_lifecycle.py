@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Mapping
 from typing import Any
 
 import pytest
 
-from nr2301 import NR2301Client
+from nr2301 import NR2301Client, NR2301Error
 
 
 if os.environ.get("NR2301_WRITE_INTEGRATION") != "1":
@@ -207,8 +208,12 @@ def _url_values(raw_items: Any, label: str) -> tuple[str, ...]:
     return tuple(slots)
 
 
-def _url_state(router) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
-    response = router.firewall.url_filter(timeout=5.0)
+def _url_state(
+    router,
+    *,
+    timeout: float = 10.0,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    response = router.firewall.url_filter(timeout=timeout)
     settings = _mapping(response.get("settings"), "url_filter.settings")
     mode = settings.get("mode")
     if mode not in {"disable", "blacklist", "whitelist"}:
@@ -218,6 +223,44 @@ def _url_state(router) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
         _url_values(settings.get("black_items"), "url_filter.black_items"),
         _url_values(settings.get("white_items"), "url_filter.white_items"),
     )
+
+
+def _url_state_with_recovery(
+    router,
+    *,
+    attempts: int = 5,
+    timeout: float = 10.0,
+    delay: float = 1.0,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    last_error: NR2301Error | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            state = _url_state(router, timeout=timeout)
+            if attempt > 1:
+                print(
+                    "FIREWALL_URL_FILTER_READBACK_RECOVERED"
+                    f" attempt={attempt}"
+                    f" previous_error={type(last_error).__name__ if last_error else None}",
+                    flush=True,
+                )
+            return state
+        except NR2301Error as exc:
+            last_error = exc
+            print(
+                "FIREWALL_URL_FILTER_READBACK_RETRY"
+                f" attempt={attempt}"
+                f" error={type(exc).__name__}",
+                flush=True,
+            )
+            try:
+                router.login()
+            except NR2301Error:
+                pass
+            if attempt < attempts and delay:
+                time.sleep(delay)
+
+    assert last_error is not None
+    raise last_error
 
 
 def _dmz_destination(router) -> str:
@@ -256,7 +299,7 @@ def _snapshot(router) -> dict[str, object]:
             limit=10,
             label="port_trigger",
         ),
-        "url_filter": _url_state(router),
+        "url_filter": _url_state_with_recovery(router),
         "ip_filter_rules": _rule_state(
             router.firewall.ip_filter(timeout=5.0),
             value_key="ip",
@@ -516,8 +559,8 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             router.firewall.set_url_filter(
                 "whitelist", items=list(mutated_urls), timeout=10.0
             )
-            assert _url_state(router)[0:1] == ("whitelist",)
-            assert _url_state(router)[2] == mutated_urls
+            assert _url_state_with_recovery(router)[0:1] == ("whitelist",)
+            assert _url_state_with_recovery(router)[2] == mutated_urls
         else:
             mutated_urls = _mutate_slot_values(
                 tuple(black_items), candidates=_SYNTHETIC_URLS
@@ -525,7 +568,7 @@ def test_firewall_write_lifecycle_and_exact_restore(router):
             router.firewall.set_url_filter(
                 "blacklist", items=list(mutated_urls), timeout=10.0
             )
-            assert _url_state(router)[0:2] == ("blacklist", mutated_urls)
+            assert _url_state_with_recovery(router)[0:2] == ("blacklist", mutated_urls)
         print("FIREWALL_URL_FILTER_WRITE changed=True readback=True", flush=True)
 
         router.firewall.set_upnp_enabled(
