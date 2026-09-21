@@ -8,19 +8,19 @@ import time
 from nr2301 import NR2301Client, NR2301Error
 
 
-SYNTHETIC = {
-    "index": "0",
-    "mac": "02:00:00:00:00:fe",
-    "ip": "192.0.2.254",
+SYNTHETIC_MACS = {
+    "02:00:00:00:00:fe",
+    "02:00:00:00:00:fd",
+    "02:00:00:00:00:fc",
 }
 
 
-def fingerprint(item):
-    return (
-        str(item["index"]),
-        str(item["mac"]).lower(),
-        str(item["ip"]),
-    )
+def normalized_mac(value):
+    return str(value).replace("-", ":").lower()
+
+
+def is_synthetic(item):
+    return normalized_mac(item["mac"]) in SYNTHETIC_MACS
 
 
 def main() -> None:
@@ -37,10 +37,7 @@ def main() -> None:
         client.login()
         current = client.lan.static_reservation_list(timeout=5.0)
 
-        synthetic_present = any(
-            fingerprint(item) == fingerprint(SYNTHETIC)
-            for item in current
-        )
+        synthetic_present = any(is_synthetic(item) for item in current)
         print(
             "DHCP_STATIC_RESIDUE"
             f" count={len(current)}"
@@ -57,9 +54,9 @@ def main() -> None:
                 "refusing automatic cleanup"
             )
 
-        # The failed integration test started from an empty reservation table.
-        # Clear only the exact sole synthetic residue using the already
-        # historically live-verified empty-table restore shape.
+        # The integration probe starts from an empty reservation table and
+        # uses only the reserved locally-administered synthetic MACs above.
+        # Clear only when one such test reservation is the sole current entry.
         try:
             client.multicall(
                 [
