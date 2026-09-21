@@ -377,8 +377,14 @@ class LANNamespace:
         recovery_attempts: int = 10,
         recovery_delay: float = 1.0,
         recovery_timeout: float = 3.0,
+        force: bool = False,
     ) -> LANAddressResponse:
-        """Use the deprecated dedicated LAN-address setter and require read-back."""
+        """Use the deprecated dedicated LAN-address setter and require read-back.
+
+        `force=True` is intended for explicit transport verification when the
+        caller wants to execute the setter even though the requested address
+        already matches the current state.
+        """
 
         _validate_ip(lan_ip, version=4, field="lan_ip")
         _validate_ip(lan_netmask, version=4, field="lan_netmask")
@@ -670,8 +676,11 @@ class LANNamespace:
 
         current = self.address(timeout=recovery_timeout)
         current_router = current.get("router")
+        if not isinstance(force, bool):
+            raise TypeError("force must be a bool")
         if (
-            isinstance(current_router, Mapping)
+            not force
+            and isinstance(current_router, Mapping)
             and current_router.get("lan_ip") == lan_ip
             and current_router.get("lan_netmask") == lan_netmask
         ):
