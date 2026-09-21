@@ -312,6 +312,8 @@ def test_restore_config_backup_uploads_sequential_raw_chunks_and_verifies_reboot
     assert result["uploaded_bytes"] == 8
     assert result["chunk_count"] == 2
     assert result["outage_observed"] is True
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is False
     assert result["action_error"] == "TransportError"
 
     assert [call[0] for call in session.calls] == ["GET", "POST", "POST", "GET"]
@@ -353,6 +355,8 @@ def test_restore_config_backup_accepts_final_http_response_but_still_requires_re
 
     assert result["boot_time_after"] == 6
     assert result["outage_observed"] is False
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is False
 
 
 def test_restore_config_backup_rejects_frontend_other_error_without_echoing_backup():
@@ -415,3 +419,127 @@ def test_restore_config_backup_validates_input_before_network_access(monkeypatch
         client.maintenance.restore_config_backup(b"four")
 
     assert session.calls == []
+
+
+def test_factory_reset_uses_bodyless_get_switches_to_factory_password_and_verifies_boot(monkeypatch):
+    client, session = authenticated_client(
+        {"boot_time": 8000, "result": 0},
+        FakeResponse(status_code=503),
+        {"boot_time": 12, "result": 0},
+    )
+
+    login_passwords = []
+
+    def fake_login():
+        login_passwords.append(client.password)
+        client._authenticated = True
+        session.cookies.set("CGISID", "factory-session")
+        return {"result": 3}
+
+    monkeypatch.setattr(client, "login", fake_login)
+
+    result = client.maintenance.factory_reset(
+        "factory-secret",
+        recovery_attempts=1,
+        recovery_delay=0,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_before"] == 8000
+    assert result["boot_time_after"] == 12
+    assert result["outage_observed"] is True
+    assert result["action_error"] == "TransportError"
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is True
+    assert client.password == "factory-secret"
+    assert login_passwords == ["factory-secret"]
+
+    assert [call[2]["params"]["method"] for call in session.calls] == [
+        "get_runtime_info",
+        "router_call_rst_factory",
+        "get_runtime_info",
+    ]
+    action = session.calls[1]
+    assert action[0] == "GET"
+    assert action[2]["params"]["path"] == "router"
+    assert action[2]["params"]["method"] == "router_call_rst_factory"
+    assert "json" not in action[2]
+
+
+def test_factory_reset_rejects_missing_factory_password_before_network_access():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        client.maintenance.factory_reset("")
+
+    assert session.calls == []
+
+
+def test_restore_config_backup_can_switch_to_restored_password_for_recovery(monkeypatch):
+    client, session = authenticated_client(
+        {"boot_time": 5000, "result": 0},
+        FakeResponse(status_code=503),
+        {"boot_time": 8, "result": 0},
+    )
+
+    login_passwords = []
+
+    def fake_login():
+        login_passwords.append(client.password)
+        client._authenticated = True
+        session.cookies.set("CGISID", "restored-session")
+        return {"result": 3}
+
+    monkeypatch.setattr(client, "login", fake_login)
+
+    result = client.maintenance.restore_config_backup(
+        b"ABCD",
+        chunk_size=4,
+        recovery_attempts=2,
+        recovery_delay=0,
+        initial_delay=0,
+        recovery_password="original-secret",
+    )
+
+    assert result["boot_time_after"] == 8
+    assert result["reboot_evidence"] == "boot_time_reset"
+    assert result["credential_recovery_verified"] is True
+    assert client.password == "original-secret"
+    assert login_passwords == ["original-secret"]
+    assert "original-secret" not in repr(result)
+
+
+def test_restore_config_backup_rejects_empty_recovery_password_before_upload():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="recovery_password"):
+        client.maintenance.restore_config_backup(
+            b"ABCD",
+            recovery_password="",
+        )
+
+    assert session.calls == []
+
+
+def test_restore_config_backup_can_verify_reboot_when_pre_action_uptime_is_also_fresh(monkeypatch):
+    client, _ = authenticated_client(
+        {"boot_time": 51, "result": 0},
+        FakeResponse(status_code=503),
+        {"boot_time": 58, "result": 0},
+    )
+
+    timeline = iter([0.0, 55.0])
+    monkeypatch.setattr("nr2301.namespaces.maintenance.time.monotonic", lambda: next(timeline))
+
+    result = client.maintenance.restore_config_backup(
+        b"ABCD",
+        chunk_size=4,
+        recovery_attempts=1,
+        recovery_delay=0,
+        initial_delay=0,
+    )
+
+    assert result["boot_time_before"] == 51
+    assert result["boot_time_after"] == 58
+    assert result["reboot_evidence"] == "outage_plus_fresh_uptime"
+    assert result["outage_observed"] is True

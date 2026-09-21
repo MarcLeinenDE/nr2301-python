@@ -11,6 +11,7 @@ import requests
 from .auth import challenge_response, generate_user_id, login_result_text
 from .exceptions import AuthenticationError, ProtocolError
 from .namespaces import (
+    AccountNamespace,
     DDNSNamespace,
     DeviceNamespace,
     FirewallNamespace,
@@ -50,6 +51,7 @@ class NR2301Client:
 
         # Evidence-backed high-level namespaces. The generic call()/multicall()
         # transport remains available for every documented API method.
+        self.account = AccountNamespace(self)
         self.version = VersionNamespace(self)
         self.device = DeviceNamespace(self)
         self.ddns = DDNSNamespace(self)
