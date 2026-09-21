@@ -84,6 +84,16 @@ A physical factory-reset button is available as the final recovery path, and los
 
 This permission removes the old assumption that physical tests must remain read-only. It does **not** remove the need for deliberate test gates, state capture, read-back or restore evidence.
 
+### Full-coverage campaign rule
+
+The canonical 2026-09-21 API↔SDK audit is maintained upstream in `nr2301-api/docs/audits/api-sdk-full-coverage-2026-09-21.md`.
+
+For the active campaign, **`router/eng_set_usb_mode` is the only hard mutation exclusion**. Every other documented method remains an explicit coverage target, even when the upstream safety class is `DO_NOT_TEST_FOR_COVERAGE`. Those labels remain risk/planning metadata rather than permanent SDK bans.
+
+Credential-changing paths, administrator-password recovery, SIM PIN/PUK recovery, engineering/ADB surfaces, VPN/DDNS/TR-069 credentials, radio changes, WAN interruption, reboot, config restore and factory reset are in scope when the test has an evidence-backed request contract, required known credentials/state, an explicit gate and a recovery plan. Do not brute-force or repeatedly guess secrets or engineering credentials.
+
+OTA download/install is in scope but should be left until late in the ACIY.3 campaign because changing firmware may replace the protocol baseline and is not normally undone by factory reset.
+
 ### Current hard exclusion: USB management mode
 
 Do **not** mutate the router's USB/management mode, including engineering USB-mode setters, during routine coverage work. The USB path is the current control/recovery channel and should remain available.
