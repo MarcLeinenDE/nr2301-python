@@ -65,7 +65,7 @@ def test_device_internet_preserves_documented_raw_access_value():
 
 
 def test_work_mode_preserves_unknown_raw_mode_without_coercion():
-    payload = {"mode": "future-mode", "result": 0}
+    payload = {"work_mode": "future-mode"}
     client, _ = authenticated_client(payload)
 
     assert client.device.work_mode() == payload
@@ -215,9 +215,9 @@ def test_set_sleep_wait_time_raises_when_readback_does_not_match():
 
 def test_set_work_mode_uses_verified_multicall_and_readback():
     client, session = authenticated_client(
-        {"mode": "router", "result": 0},
+        {"work_mode": "router"},
         {"responses": [{"result": 0}]},
-        {"mode": "bridge", "result": 0},
+        {"work_mode": "bridge"},
     )
 
     result = client.device.set_work_mode(
@@ -225,7 +225,7 @@ def test_set_work_mode_uses_verified_multicall_and_readback():
         recovery_attempts=1,
     )
 
-    assert result == {"mode": "bridge", "result": 0}
+    assert result == {"work_mode": "bridge"}
     assert [call[0] for call in session.calls] == ["GET", "POST", "GET"]
     _, _, kwargs = session.calls[1]
     assert kwargs["params"] == {"multicalls": 1}
@@ -243,9 +243,9 @@ def test_set_work_mode_uses_verified_multicall_and_readback():
 
 def test_set_work_mode_force_executes_same_state_write():
     client, session = authenticated_client(
-        {"mode": "router", "result": 0},
+        {"work_mode": "router"},
         {"responses": [{"result": 0}]},
-        {"mode": "router", "result": 0},
+        {"work_mode": "router"},
     )
 
     result = client.device.set_work_mode(
@@ -254,15 +254,15 @@ def test_set_work_mode_force_executes_same_state_write():
         recovery_attempts=1,
     )
 
-    assert result["mode"] == "router"
+    assert result["work_mode"] == "router"
     assert [call[0] for call in session.calls] == ["GET", "POST", "GET"]
 
 
 def test_set_work_mode_uses_readback_after_transport_failure():
     client, _ = authenticated_client(
-        {"mode": "router", "result": 0},
+        {"work_mode": "router"},
         FakeResponse({}, status_code=500),
-        {"mode": "bridge", "result": 0},
+        {"work_mode": "bridge"},
     )
 
     result = client.device.set_work_mode(
@@ -270,13 +270,13 @@ def test_set_work_mode_uses_readback_after_transport_failure():
         recovery_attempts=1,
     )
 
-    assert result["mode"] == "bridge"
+    assert result["work_mode"] == "bridge"
 
 
 def test_set_work_mode_same_state_without_force_avoids_write():
-    client, session = authenticated_client({"mode": "router", "result": 0})
+    client, session = authenticated_client({"work_mode": "router"})
 
-    assert client.device.set_work_mode("router")["mode"] == "router"
+    assert client.device.set_work_mode("router")["work_mode"] == "router"
     assert [call[0] for call in session.calls] == ["GET"]
 
 
