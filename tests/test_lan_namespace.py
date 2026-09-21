@@ -302,7 +302,7 @@ def test_static_reservation_list_normalizes_verified_item_shape():
             "data": [
                 {
                     "index": 0,
-                    "mac": "02:AA:BB:CC:DD:EE",
+                    "mac": "02-AA-BB-CC-DD-EE",
                     "ip": "192.0.2.10",
                 }
             ],
@@ -332,7 +332,18 @@ def test_set_static_reservations_uses_multicall_and_exact_readback():
         "mac": "02:00:00:00:00:01",
         "ip": "192.168.1.254",
     }
-    after = {"dhcp": {"cnt": 1, "data": [expected_item]}}
+    after = {
+        "dhcp": {
+            "cnt": 1,
+            "data": [
+                {
+                    "index": 0,
+                    "mac": "02-00-00-00-00-01",
+                    "ip": "192.168.1.254",
+                }
+            ],
+        }
+    }
     client, session = authenticated_client(
         [
             (address, 200),
@@ -389,6 +400,7 @@ def test_set_static_reservations_recovers_after_write_transport_failure():
     [
         {"index": "10", "mac": "02:00:00:00:00:01", "ip": "192.0.2.10"},
         {"index": "0", "mac": "invalid", "ip": "192.0.2.10"},
+        {"index": "0", "mac": "02:00-AA:BB:CC:DD", "ip": "192.0.2.10"},
         {"index": "0", "mac": "02:00:00:00:00:01", "ip": "not-an-ip"},
     ],
 )
