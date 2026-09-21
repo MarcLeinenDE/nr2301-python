@@ -17,11 +17,11 @@ Current assumptions:
 
 This is broader permission than the initial read-only smoke phase, but physical testing remains gated so ordinary `pytest` and CI can never mutate a router accidentally.
 
-## Canonical management host
+## Management host / authority observations
 
-On the tested firmware `V1.00(ACIY.3)C0`, `zyxel.home` resolves to the same management address as `192.168.1.1`, but administrator pre-auth calls are host/authority sensitive.
+The SDK default remains `http://zyxel.home`, but current ACIY.3 evidence does **not** establish that hostname as the only valid administrator authority.
 
-Physical USB A/B testing on 2026-08-31 showed:
+A controlled USB A/B test on 2026-08-31 observed:
 
 ```text
 http://192.168.1.1
@@ -33,7 +33,11 @@ http://zyxel.home
   account/get_rand                -> result=0, rand=<8-byte challenge>
 ```
 
-The result was independent of requests-vs-urllib transport, compact JSON/header reproduction, WebUI bootstrap and prior explicit WebUI logout. Use `http://zyxel.home` for administrator login on this firmware. Anonymous/status reads may still work through the direct IP and therefore do not prove that the direct IP is suitable for login.
+That observation was reproducible in the 2026-08-31 runtime state. It is **not** a permanent firmware rule.
+
+During the 2026-09-21 LAN/router campaign, `zyxel.home` did not resolve on the test PC, so the session explicitly used `NR2301_URL=http://192.168.1.1`. The guarded static-DHCP cleanup and the complete destructive LAN/router lifecycle both called `client.login()` successfully and completed authenticated operations through the direct IP.
+
+Therefore either known authority may be usable. If one authority fails during pre-auth, trying the other is a recovery option. Preserve the raw endpoint-specific result; do not reinterpret `result=4` as a universal authority error.
 
 ## Test levels
 
@@ -159,7 +163,7 @@ NR2301_URL=http://zyxel.home
 NR2301_USERNAME=admin
 ```
 
-`NR2301_URL` and `NR2301_USERNAME` use those values as defaults when omitted.
+`NR2301_URL` and `NR2301_USERNAME` use those values as defaults when omitted. `http://192.168.1.1` is also physically proven as a working administrator URL in the 2026-09-21 runtime state and is a valid fallback when `zyxel.home` does not resolve.
 
 ## PowerShell read-only example
 
