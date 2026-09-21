@@ -256,11 +256,16 @@ def test_factory_reset_then_restore_original_backup(router):
             f" action_error={test_restore.get('action_error')!r}"
             f" uploaded_bytes={test_restore.get('uploaded_bytes')}"
             f" chunks={test_restore.get('chunk_count')}"
-            f" credential_restored={router.password == temporary_password}",
+            f" credential_restored={router.password == temporary_password}"
+            f" reboot_evidence={test_restore.get('reboot_evidence')!r}",
             flush=True,
         )
 
-        assert test_restore["boot_time_after"] < test_restore["boot_time_before"]
+        assert test_restore["reboot_evidence"] in {
+            "boot_time_reset",
+            "outage_plus_fresh_uptime",
+        }
+        assert test_restore["credential_recovery_verified"] is True
         assert router.password == temporary_password
 
         restored_test_state = _snapshot_with_recovery(router)
@@ -300,9 +305,16 @@ def test_factory_reset_then_restore_original_backup(router):
             f" action_error={baseline_restore.get('action_error')!r}"
             f" uploaded_bytes={baseline_restore.get('uploaded_bytes')}"
             f" chunks={baseline_restore.get('chunk_count')}"
-            f" original_credential_restored={router.password == original_password}",
+            f" original_credential_restored={router.password == original_password}"
+            f" reboot_evidence={baseline_restore.get('reboot_evidence')!r}",
             flush=True,
         )
+
+        assert baseline_restore["reboot_evidence"] in {
+            "boot_time_reset",
+            "outage_plus_fresh_uptime",
+        }
+        assert baseline_restore["credential_recovery_verified"] is True
 
         final_state = _snapshot_with_recovery(router)
         assert final_state == before_state
