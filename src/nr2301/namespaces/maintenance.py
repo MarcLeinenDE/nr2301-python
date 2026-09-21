@@ -6,7 +6,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-from ..exceptions import APIError, NR2301Error, ProtocolError, TransportError
+from ..exceptions import APIError, AuthenticationError, NR2301Error, ProtocolError, TransportError
 
 if TYPE_CHECKING:
     from ..client import NR2301Client
@@ -129,6 +129,7 @@ class MaintenanceNamespace:
         recovery_delay: float = 1.0,
         recovery_timeout: float = 3.0,
         initial_delay: float = 1.0,
+        recovery_password: str | None = None,
     ) -> MaintenanceRecoveryResult:
         """Restore a trusted configuration backup through the stock file CGI.
 
@@ -140,6 +141,10 @@ class MaintenanceNamespace:
         bytes in diagnostics. A response containing `other error` is treated
         as failure. The final upload is considered successful only after
         management recovers and `boot_time` proves a new boot.
+
+        `recovery_password` is useful when the restored backup changes the
+        administrator credential (for example after restoring a pre-factory-
+        reset backup). It is never included in diagnostics.
         """
 
         if not isinstance(backup, (bytes, bytearray, memoryview)):
@@ -203,6 +208,13 @@ class MaintenanceNamespace:
                     },
                 )
 
+        if recovery_password is not None:
+            if not isinstance(recovery_password, str):
+                raise TypeError("recovery_password must be a str or None")
+            if not recovery_password:
+                raise ValueError("recovery_password must not be empty")
+            self._switch_recovery_password(recovery_password)
+
         started = time.monotonic()
         if initial_delay:
             time.sleep(initial_delay)
@@ -254,6 +266,129 @@ class MaintenanceNamespace:
         raise APIError(
             "configuration restore could not be verified by recovery and boot_time reset",
             method_id="file.cgi/restore_config",
+            response=details,
+        )
+
+    def factory_reset(
+        self,
+        factory_password: str,
+        *,
+        action_timeout: float = 5.0,
+        recovery_attempts: int = 120,
+        recovery_delay: float = 1.0,
+        recovery_timeout: float = 4.0,
+        initial_delay: float = 2.0,
+    ) -> MaintenanceRecoveryResult:
+        """Reset the router to factory defaults and verify default-login recovery.
+
+        The factory password is device-specific on NR2301 and is shown on the
+        device LCD. The helper never logs or returns it.
+
+        Success requires:
+        - the source-confirmed body-less GET action,
+        - management recovery,
+        - successful administrator login using `factory_password`, and
+        - a fresh `boot_time` proving a new boot.
+
+        On success the client remains authenticated with `factory_password`,
+        matching the router's post-reset credential state.
+        """
+
+        if not isinstance(factory_password, str):
+            raise TypeError("factory_password must be a str")
+        if not factory_password:
+            raise ValueError("factory_password must not be empty")
+        self._validate_recovery_args(
+            action_timeout=action_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+            initial_delay=initial_delay,
+        )
+
+        before = self._read_boot_time(timeout=recovery_timeout)
+        original_password = self._client.password
+        action_response: dict[str, Any] | None = None
+        action_error: NR2301Error | None = None
+
+        try:
+            action_response = self._client.call(
+                "router",
+                "router_call_rst_factory",
+                timeout=action_timeout,
+            )
+        except (TransportError, ProtocolError) as exc:
+            action_error = exc
+
+        self._switch_recovery_password(factory_password)
+        started = time.monotonic()
+        if initial_delay:
+            time.sleep(initial_delay)
+
+        last_boot: int | None = None
+        last_error: NR2301Error | None = None
+        outage_observed = action_error is not None
+
+        for attempt in range(recovery_attempts):
+            try:
+                self._client.login()
+                current = self._read_boot_time(timeout=recovery_timeout)
+                last_boot = current
+                elapsed = time.monotonic() - started
+
+                if current < before or (
+                    outage_observed
+                    and current <= int(elapsed) + 15
+                    and before <= int(elapsed) + 15
+                ):
+                    result: MaintenanceRecoveryResult = {
+                        "boot_time_before": before,
+                        "boot_time_after": current,
+                        "outage_observed": outage_observed,
+                    }
+                    if action_response is not None:
+                        result["action_response"] = action_response
+                    if action_error is not None:
+                        result["action_error"] = type(action_error).__name__
+                    return result
+            except AuthenticationError as exc:
+                # Once the login protocol itself is reachable, retrying a bad
+                # device-specific factory password can consume lockout budget.
+                self._client.password = original_password
+                raise APIError(
+                    "factory-reset recovery reached login but the supplied "
+                    "factory password was rejected",
+                    method_id="router/router_call_rst_factory",
+                    response={
+                        "boot_time_before": before,
+                        "boot_time_after": last_boot,
+                        "outage_observed": outage_observed,
+                        "recovery_error": type(exc).__name__,
+                    },
+                ) from exc
+            except NR2301Error as exc:
+                outage_observed = True
+                last_error = exc
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        # Recovery never became conclusive. Restore the caller credential in
+        # memory; the physical router state remains unknown and must be checked.
+        self._client.password = original_password
+        details: dict[str, Any] = {
+            "boot_time_before": before,
+            "boot_time_after": last_boot,
+            "outage_observed": outage_observed,
+        }
+        if action_error is not None:
+            details["action_error"] = type(action_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+        raise APIError(
+            "factory reset could not be verified by default-login recovery "
+            "and boot_time reset",
+            method_id="router/router_call_rst_factory",
             response=details,
         )
 
@@ -519,6 +654,11 @@ class MaintenanceNamespace:
                 ),
             },
         )
+
+    def _switch_recovery_password(self, password: str) -> None:
+        self._client.password = password
+        self._client._authenticated = False
+        self._client.transport.session.cookies.pop("CGISID", None)
 
     def _try_relogin(self, previous_error: NR2301Error) -> NR2301Error:
         if self._client.password is None:
