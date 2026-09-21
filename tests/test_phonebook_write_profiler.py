@@ -67,3 +67,13 @@ def test_phonebook_update_field_profiler_uses_observed_baseline_and_index_cleanu
     assert "CHANGED_FROM_BASELINE" in source
     assert "OTHERS_STABLE_FROM_OBSERVED_BASE" in source
     assert "FINAL_INDEX_SET_MATCH" in source
+
+
+def test_phonebook_residue_cleanup_helper_is_guarded_and_conservative():
+    cleanup_script = ROOT / "examples" / "check_cleanup_phonebook_residue.py"
+    source = cleanup_script.read_text(encoding="utf-8")
+    compile(source, str(cleanup_script), "exec")
+    assert "KNOWN_RESIDUE_INDEXES = {3, 4, 5, 6, 7}" in source
+    assert "NR2301_PHONEBOOK_RESIDUE_CLEANUP" in source
+    assert "refusing automatic cleanup" in source
+    assert "PHONEBOOK_RESIDUE_SAFE_TO_CLEAN" in source
