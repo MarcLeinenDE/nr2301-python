@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- corrected the administrator authority guidance from the canonical API audit: the older 2026-08-31 direct-IP `result=4` observation is now treated as runtime/state dependent because a 2026-09-21 SDK recheck successfully completed administrator login and the full LAN/router lifecycle via `http://192.168.1.1`; the SDK still defaults to `http://zyxel.home` but no longer describes direct IP as permanently unsuitable
 - live-profiled `save_draft(..., message_id=<existing>)` on ACIY.3: the shipped-frontend existing-ID request returns the verified save success triple but behaves as COPY_ON_SAVE (original Draft unchanged, exactly one new Draft ID contains the replacement body); SDK documentation no longer promises in-place update semantics
 - completed a real external SMS E2E through the public SDK: `send()` returned the verified 0/1/0 success triple and the handset physically received the message; the handset reply appeared as a new Inbox item and `get_by_id()` returned the complete documented response field set; Inbox/Outbox bodies were observed as UTF-16BE hex with phone number/content kept out of logs
 - added `client.sms.get_by_id()` and `client.sms.save_draft()` from normalized public contracts; draft create/update preserves the historically live-verified wire distinction (string id/type/protocol, boolean gsm7), enforces the save success triple, and redacts message content from SDK-generated errors

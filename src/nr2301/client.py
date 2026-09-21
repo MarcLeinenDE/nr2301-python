@@ -227,9 +227,11 @@ def _preauth_failure_message(base_url: str, method_id: str, result: Any) -> str:
     message = f"{method_id} failed with result={result!r}"
     if _uses_tested_direct_management_ip(base_url) and _optional_int(result) == 4:
         message += (
-            "; tested firmware V1.00(ACIY.3)C0 returns result=4 for administrator "
-            "pre-auth calls addressed as 192.168.1.1, while the same router/IP "
-            "succeeds via the canonical management host http://zyxel.home"
+            "; a 2026-08-31 ACIY.3 run observed result=4 for direct-IP "
+            "administrator pre-auth while http://zyxel.home succeeded, but a "
+            "2026-09-21 recheck later completed administrator login successfully "
+            "through 192.168.1.1; authority behavior is state/environment "
+            "dependent, so try the alternative known authority if available"
         )
     return message
 
