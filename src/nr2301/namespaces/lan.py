@@ -664,7 +664,12 @@ class LANNamespace:
         mac = item.get("mac")
         if not isinstance(mac, str):
             raise TypeError("reservation mac must be a str")
-        parts = mac.split(":")
+
+        # ACIY.3 accepts colon-separated MACs on write but live getter
+        # read-back canonicalizes the same value to uppercase hyphen-separated
+        # form. Accept either representation and expose one stable SDK form.
+        separator = ":" if ":" in mac else "-" if "-" in mac else None
+        parts = mac.split(separator) if separator is not None else []
         if (
             len(parts) != 6
             or any(
@@ -674,7 +679,7 @@ class LANNamespace:
             )
         ):
             raise ValueError(
-                "reservation mac must be a colon-separated MAC address"
+                "reservation mac must be a colon- or hyphen-separated MAC address"
             )
 
         ip = item.get("ip")
@@ -682,8 +687,8 @@ class LANNamespace:
             raise TypeError("reservation ip must be a str")
         _validate_ip(ip, version=4, field="reservation ip")
 
-        normalized_mac = mac.lower()
-        first_octet = int(normalized_mac.split(":")[0], 16)
+        normalized_mac = ":".join(part.lower() for part in parts)
+        first_octet = int(parts[0], 16)
         if first_octet & 1:
             raise ValueError("reservation mac must not be multicast")
 
