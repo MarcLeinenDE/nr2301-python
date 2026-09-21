@@ -33,6 +33,8 @@ class MaintenanceRecoveryResult(TypedDict, total=False):
     boot_time_before: int
     chunk_count: int
     outage_observed: bool
+    reboot_evidence: str
+    credential_recovery_verified: bool
     uploaded_bytes: int
 
 
@@ -229,15 +231,28 @@ class MaintenanceNamespace:
                 current = self._read_boot_time(timeout=recovery_timeout)
                 last_boot = current
                 elapsed = time.monotonic() - started
-                if current < before or (
+                reboot_evidence: str | None = None
+                if current < before:
+                    reboot_evidence = "boot_time_reset"
+                elif (
                     outage_observed
                     and current <= int(elapsed) + 10
                     and before <= int(elapsed) + 10
                 ):
+                    # When a restore is issued shortly after a previous reboot,
+                    # the new uptime can numerically exceed the pre-action
+                    # uptime by the time management recovers. In that case the
+                    # observed outage plus a fresh-uptime bound is the usable
+                    # reboot proof; direct before/after ordering is impossible.
+                    reboot_evidence = "outage_plus_fresh_uptime"
+
+                if reboot_evidence is not None:
                     result: MaintenanceRecoveryResult = {
                         "boot_time_before": before,
                         "boot_time_after": current,
                         "outage_observed": outage_observed,
+                        "reboot_evidence": reboot_evidence,
+                        "credential_recovery_verified": recovery_password is not None,
                         "uploaded_bytes": len(payload),
                         "chunk_count": chunk_count,
                     }
@@ -337,15 +352,23 @@ class MaintenanceNamespace:
                 last_boot = current
                 elapsed = time.monotonic() - started
 
-                if current < before or (
+                reboot_evidence: str | None = None
+                if current < before:
+                    reboot_evidence = "boot_time_reset"
+                elif (
                     outage_observed
                     and current <= int(elapsed) + 15
                     and before <= int(elapsed) + 15
                 ):
+                    reboot_evidence = "outage_plus_fresh_uptime"
+
+                if reboot_evidence is not None:
                     result: MaintenanceRecoveryResult = {
                         "boot_time_before": before,
                         "boot_time_after": current,
                         "outage_observed": outage_observed,
+                        "reboot_evidence": reboot_evidence,
+                        "credential_recovery_verified": True,
                     }
                     if action_response is not None:
                         result["action_response"] = action_response
