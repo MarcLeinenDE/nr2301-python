@@ -106,7 +106,7 @@ def test_set_dns_preserves_combined_settings_and_verifies_readback():
         "ipv6dns2": "2606:4700:4700::1001",
     }
 
-    method, _, kwargs = session.calls[1]
+    method, _, kwargs = session.calls[2]
     assert method == "POST"
     assert kwargs["params"] == {"multicalls": 1}
     member = kwargs["json"]["requests"][0]
@@ -312,7 +312,7 @@ def test_static_reservation_list_normalizes_verified_item_shape():
 
     assert client.lan.static_reservation_list() == [
         {
-            "index": "0",
+            "index": 0,
             "mac": "02:aa:bb:cc:dd:ee",
             "ip": "192.0.2.10",
         }
@@ -320,15 +320,26 @@ def test_static_reservation_list_normalizes_verified_item_shape():
 
 
 def test_set_static_reservations_uses_multicall_and_exact_readback():
+    address = {
+        "router": {
+            "lan_ip": "192.168.1.1",
+            "lan_netmask": "255.255.255.0",
+        }
+    }
     before = {"dhcp": {"cnt": 0, "data": []}}
     expected_item = {
-        "index": "0",
+        "index": 0,
         "mac": "02:00:00:00:00:01",
-        "ip": "192.0.2.254",
+        "ip": "192.168.1.254",
     }
     after = {"dhcp": {"cnt": 1, "data": [expected_item]}}
     client, session = authenticated_client(
-        [(before, 200), ({"responses": [{"result": 0}]}, 200), (after, 200)]
+        [
+            (address, 200),
+            (before, 200),
+            ({"responses": [{"result": 0}]}, 200),
+            (after, 200),
+        ]
     )
 
     result = client.lan.set_static_reservations(
@@ -350,15 +361,21 @@ def test_set_static_reservations_uses_multicall_and_exact_readback():
 
 
 def test_set_static_reservations_recovers_after_write_transport_failure():
+    address = {
+        "router": {
+            "lan_ip": "192.168.1.1",
+            "lan_netmask": "255.255.255.0",
+        }
+    }
     before = {"dhcp": {"cnt": 0, "data": []}}
     expected_item = {
-        "index": "0",
+        "index": 0,
         "mac": "02:00:00:00:00:01",
-        "ip": "192.0.2.254",
+        "ip": "192.168.1.254",
     }
     after = {"dhcp": {"cnt": 1, "data": [expected_item]}}
     client, _ = authenticated_client(
-        [(before, 200), ({}, 500), (after, 200)]
+        [(address, 200), (before, 200), ({}, 500), (after, 200)]
     )
 
     assert client.lan.set_static_reservations(
@@ -428,3 +445,98 @@ def test_set_address_legacy_same_state_without_force_avoids_write():
     ) == address
 
     assert [call[0] for call in session.calls] == ["GET"]
+
+
+
+def test_set_static_reservations_rejects_ip_outside_current_lan_before_write():
+    address = {
+        "router": {
+            "lan_ip": "192.168.1.1",
+            "lan_netmask": "255.255.255.0",
+        }
+    }
+    client, session = authenticated_client([(address, 200)])
+
+    with pytest.raises(ValueError, match="inside current LAN subnet"):
+        client.lan.set_static_reservations(
+            [
+                {
+                    "index": 0,
+                    "mac": "02:00:00:00:00:01",
+                    "ip": "192.0.2.254",
+                }
+            ]
+        )
+
+    assert len(session.calls) == 1
+    assert session.calls[0][0] == "GET"
+
+
+def test_set_static_reservations_sends_numeric_index_even_if_input_is_string():
+    address = {
+        "router": {
+            "lan_ip": "192.168.1.1",
+            "lan_netmask": "255.255.255.0",
+        }
+    }
+    before = {"dhcp": {"cnt": 0, "data": []}}
+    after = {
+        "dhcp": {
+            "cnt": 1,
+            "data": [
+                {
+                    "index": 0,
+                    "mac": "02:00:00:00:00:01",
+                    "ip": "192.168.1.254",
+                }
+            ],
+        }
+    }
+    client, session = authenticated_client(
+        [
+            (address, 200),
+            (before, 200),
+            ({"responses": [{"data": {"dhcp": {"setting_response": "OK"}}}]}, 200),
+            (after, 200),
+        ]
+    )
+
+    client.lan.set_static_reservations(
+        [
+            {
+                "index": "0",
+                "mac": "02:00:00:00:00:01",
+                "ip": "192.168.1.254",
+            }
+        ],
+        recovery_attempts=1,
+    )
+
+    member = session.calls[2][2]["json"]["requests"][0]
+    assert member["data"]["data"][0]["index"] == 0
+    assert isinstance(member["data"]["data"][0]["index"], int)
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [
+            {"index": 0, "mac": "02:00:00:00:00:01", "ip": "192.168.1.10"},
+            {"index": 1, "mac": "02:00:00:00:00:01", "ip": "192.168.1.11"},
+        ],
+        [
+            {"index": 0, "mac": "02:00:00:00:00:01", "ip": "192.168.1.10"},
+            {"index": 1, "mac": "02:00:00:00:00:02", "ip": "192.168.1.10"},
+        ],
+        [
+            {"index": 0, "mac": "01:00:5e:00:00:01", "ip": "192.168.1.10"},
+        ],
+    ],
+)
+def test_set_static_reservations_matches_frontend_duplicate_and_multicast_checks(items):
+    client, session = authenticated_client([])
+
+    with pytest.raises(ValueError):
+        client.lan.set_static_reservations(items)
+
+    assert session.calls == []
