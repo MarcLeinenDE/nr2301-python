@@ -184,12 +184,11 @@ class LANNamespace:
     ) -> DHCPSettings:
         """Write the complete verified 12-field combined DHCP object.
 
-        Callers should start from `lan.dhcp()`, modify only intended fields,
-        then pass the full object here. The helper never invents missing values.
+        Start from `lan.dhcp()`, modify only intended fields, then pass the
+        complete object here. Missing values are never invented.
         """
 
-        if not isinstance(settings, Mapping):
-            raise TypeError("settings must be a mapping")
+        payload = self._normalize_dhcp_payload(settings)
         self._validate_recovery_options(
             write_timeout=write_timeout,
             recovery_attempts=recovery_attempts,
@@ -197,75 +196,14 @@ class LANNamespace:
             recovery_timeout=recovery_timeout,
         )
 
-        payload: dict[str, str] = {}
-        missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in settings]
-        if missing:
-            raise ProtocolError(
-                "combined DHCP write requires all fields: " + ", ".join(missing)
-            )
-        for key in _REQUIRED_COMBINED_FIELDS:
-            value = settings[key]
-            if not isinstance(value, str):
-                raise TypeError(f"{key} must be a str")
-            payload[key] = value
-
-        self._validate_dhcp_payload(payload)
-
         current = self.dhcp(timeout=recovery_timeout)
-        current_cmp = {key: current.get(key) for key in _REQUIRED_COMBINED_FIELDS}
-        if current_cmp == payload:
-            return current
-
-        write_error: NR2301Error | None = None
-        try:
-            self._client.multicall(
-                [{
-                    "path": "router",
-                    "method": "router_set_dhcp_settings_comb",
-                    "data": payload,
-                    "timeout": write_timeout,
-                }],
-                timeout=float(write_timeout),
-            )
-        except (TransportError, ProtocolError) as exc:
-            write_error = exc
-
-        last_actual: DHCPSettings | None = None
-        last_error: NR2301Error | None = None
-        for attempt in range(recovery_attempts):
-            try:
-                actual = self.dhcp(timeout=recovery_timeout)
-                last_actual = actual
-                actual_cmp = {
-                    key: actual.get(key) for key in _REQUIRED_COMBINED_FIELDS
-                }
-                if actual_cmp == payload:
-                    return actual
-            except NR2301Error as exc:
-                last_error = exc
-                if self._client.password is not None:
-                    try:
-                        self._client.login()
-                    except NR2301Error as login_exc:
-                        last_error = login_exc
-            if attempt + 1 < recovery_attempts and recovery_delay:
-                time.sleep(recovery_delay)
-
-        details: dict[str, Any] = {
-            "expected": payload,
-            "actual": (
-                {key: last_actual.get(key) for key in _REQUIRED_COMBINED_FIELDS}
-                if last_actual is not None else None
-            ),
-        }
-        if write_error is not None:
-            details["write_transport_error"] = type(write_error).__name__
-        if last_error is not None:
-            details["last_recovery_error"] = type(last_error).__name__
-        raise APIError(
-            "combined DHCP write could not be verified by exact read-back",
-            method_id="router/router_set_dhcp_settings_comb",
-            response=details,
+        return self._write_dhcp_payload(
+            payload,
+            current=current,
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
         )
 
     def static_reservation_list(
@@ -397,9 +335,17 @@ class LANNamespace:
             recovery_timeout=recovery_timeout,
         )
 
+        if not isinstance(force, bool):
+            raise TypeError("force must be a bool")
+
         current = self.address(timeout=recovery_timeout)
         router = current.get("router")
-        if isinstance(router, Mapping) and router.get("lan_ip") == lan_ip and router.get("lan_netmask") == lan_netmask:
+        if (
+            not force
+            and isinstance(router, Mapping)
+            and router.get("lan_ip") == lan_ip
+            and router.get("lan_netmask") == lan_netmask
+        ):
             return current
 
         write_error: NR2301Error | None = None
@@ -829,8 +775,16 @@ class LANNamespace:
         before = self.dhcp()
         payload: dict[str, Any] = dict(before)
         payload.update(expected)
-        verified = self.set_dhcp_settings(
-            payload,
+        normalized = self._normalize_dhcp_payload(payload)
+        self._validate_recovery_options(
+            write_timeout=write_timeout,
+            recovery_attempts=recovery_attempts,
+            recovery_delay=recovery_delay,
+            recovery_timeout=recovery_timeout,
+        )
+        verified = self._write_dhcp_payload(
+            normalized,
+            current=before,
             write_timeout=write_timeout,
             recovery_attempts=recovery_attempts,
             recovery_delay=recovery_delay,
@@ -843,6 +797,106 @@ class LANNamespace:
                 for key in ("dnsmode", "dns1", "dns2", "ipv6dns1", "ipv6dns2")
             },
         )
+
+    def _write_dhcp_payload(
+        self,
+        payload: dict[str, str],
+        *,
+        current: Mapping[str, Any],
+        write_timeout: int,
+        recovery_attempts: int,
+        recovery_delay: float,
+        recovery_timeout: float,
+    ) -> DHCPSettings:
+        current_cmp = {
+            key: current.get(key) for key in _REQUIRED_COMBINED_FIELDS
+        }
+        if current_cmp == payload:
+            return cast(DHCPSettings, dict(current))
+
+        write_error: NR2301Error | None = None
+        try:
+            self._client.multicall(
+                [
+                    {
+                        "path": "router",
+                        "method": "router_set_dhcp_settings_comb",
+                        "data": payload,
+                        "timeout": write_timeout,
+                    }
+                ],
+                timeout=float(write_timeout),
+            )
+        except (TransportError, ProtocolError) as exc:
+            write_error = exc
+
+        last_actual: DHCPSettings | None = None
+        last_error: NR2301Error | None = None
+        for attempt in range(recovery_attempts):
+            try:
+                actual = self.dhcp(timeout=recovery_timeout)
+                last_actual = actual
+                actual_cmp = {
+                    key: actual.get(key) for key in _REQUIRED_COMBINED_FIELDS
+                }
+                if actual_cmp == payload:
+                    return actual
+            except NR2301Error as exc:
+                last_error = exc
+                if self._client.password is not None:
+                    try:
+                        self._client.login()
+                    except NR2301Error as login_exc:
+                        last_error = login_exc
+
+            if attempt + 1 < recovery_attempts and recovery_delay:
+                time.sleep(recovery_delay)
+
+        details: dict[str, Any] = {
+            "expected": payload,
+            "actual": (
+                {
+                    key: last_actual.get(key)
+                    for key in _REQUIRED_COMBINED_FIELDS
+                }
+                if last_actual is not None
+                else None
+            ),
+        }
+        if write_error is not None:
+            details["write_transport_error"] = type(write_error).__name__
+        if last_error is not None:
+            details["last_recovery_error"] = type(last_error).__name__
+
+        raise APIError(
+            "combined DHCP write could not be verified by exact read-back",
+            method_id="router/router_set_dhcp_settings_comb",
+            response=details,
+        )
+
+    @classmethod
+    def _normalize_dhcp_payload(
+        cls,
+        settings: Mapping[str, Any],
+    ) -> dict[str, str]:
+        if not isinstance(settings, Mapping):
+            raise TypeError("settings must be a mapping")
+
+        missing = [key for key in _REQUIRED_COMBINED_FIELDS if key not in settings]
+        if missing:
+            raise ProtocolError(
+                "combined DHCP write requires all fields: " + ", ".join(missing)
+            )
+
+        payload: dict[str, str] = {}
+        for key in _REQUIRED_COMBINED_FIELDS:
+            value = settings[key]
+            if not isinstance(value, str):
+                raise TypeError(f"{key} must be a str")
+            payload[key] = value
+
+        cls._validate_dhcp_payload(payload)
+        return payload
 
     @staticmethod
     def _validate_dhcp_payload(payload: Mapping[str, str]) -> None:
