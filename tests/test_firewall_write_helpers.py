@@ -116,6 +116,27 @@ def test_dmz_destination_write_rejects_unverified_clear():
     assert session.calls == []
 
 
+def test_dmz_destination_write_rejects_invalid_raw_getter_value():
+    client, session = authenticated_client()
+
+    with pytest.raises(ValueError, match="valid IPv4"):
+        client.firewall.set_dmz_destination("192.168.")
+
+    assert session.calls == []
+
+
+def test_dmz_destination_write_normalizes_valid_ipv4_text():
+    payload = {"firewall": {"setting_response": "OK"}}
+    client, session = authenticated_client(payload)
+
+    assert client.firewall.set_dmz_destination(" 192.0.2.10 ") == payload
+    assert_single_post(
+        session,
+        "fw_edit_dmz_entry",
+        {"dmz_dest_ip": "192.0.2.10"},
+    )
+
+
 def test_dmz_destination_write_uses_verified_edit_method():
     payload = {"firewall": {"setting_response": "OK"}}
     client, session = authenticated_client(payload)
