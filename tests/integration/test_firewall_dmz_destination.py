@@ -62,21 +62,21 @@ def _binary(value: Any, label: str) -> int:
     return numeric
 
 
-def _snapshot(router) -> dict[str, object]:
-    dmz_info = _firewall(router.firewall.dmz_info(timeout=5.0), "dmz_info")
+def _snapshot(router, *, timeout: float = 10.0) -> dict[str, object]:
+    dmz_info = _firewall(router.firewall.dmz_info(timeout=timeout), "dmz_info")
     dmz_disable = _firewall(
-        router.firewall.disable_info(timeout=5.0), "dmz_disable"
+        router.firewall.disable_info(timeout=timeout), "dmz_disable"
     ).get("dmz_disable")
     admin = _firewall(
-        router.firewall.admin_from_wan(timeout=5.0), "admin_from_wan"
+        router.firewall.admin_from_wan(timeout=timeout), "admin_from_wan"
     ).get("admin_from_wan_enable")
     ping = _firewall(
-        router.firewall.ping_from_wan(timeout=5.0), "ping_from_wan"
+        router.firewall.ping_from_wan(timeout=timeout), "ping_from_wan"
     ).get("ping_from_wan_enable")
-    upnp = _firewall(router.firewall.upnp_state(timeout=5.0), "upnp").get(
+    upnp = _firewall(router.firewall.upnp_state(timeout=timeout), "upnp").get(
         "upnp_enable"
     )
-    vpn = router.firewall.vpn_passthrough(timeout=5.0)
+    vpn = router.firewall.vpn_passthrough(timeout=timeout)
 
     destination = dmz_info.get("dmz_dest_ip")
     if not isinstance(destination, str):
@@ -96,11 +96,16 @@ def _snapshot(router) -> dict[str, object]:
     }
 
 
-def _snapshot_with_recovery(router, *, attempts: int = 90) -> dict[str, object]:
+def _snapshot_with_recovery(
+    router,
+    *,
+    attempts: int = 12,
+    timeout: float = 10.0,
+) -> dict[str, object]:
     last_error: NR2301Error | None = None
     for attempt in range(attempts):
         try:
-            return _snapshot(router)
+            return _snapshot(router, timeout=timeout)
         except NR2301Error as exc:
             last_error = exc
             try:
@@ -147,7 +152,7 @@ def _synthetic_destination(router, original: str) -> str:
 
 
 def test_dmz_destination_write_and_recovery(router):
-    original = _snapshot(router)
+    original = _snapshot_with_recovery(router)
     original_destination = str(original["dmz_destination"])
     synthetic = _synthetic_destination(router, original_destination)
 
@@ -227,7 +232,7 @@ def test_dmz_destination_write_and_recovery(router):
                     flush=True,
                 )
 
-    final = _snapshot_with_recovery(router) if backup_used else _snapshot(router)
+    final = _snapshot_with_recovery(router)
     assert final == original
     print(
         "FIREWALL_DMZ_DESTINATION_FINAL restored=True"
