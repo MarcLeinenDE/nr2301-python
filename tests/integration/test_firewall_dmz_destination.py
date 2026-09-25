@@ -120,6 +120,14 @@ def _snapshot_with_recovery(
     )
 
 
+def _is_valid_ipv4(value: str) -> bool:
+    try:
+        ipaddress.IPv4Address(value.strip())
+    except ipaddress.AddressValueError:
+        return False
+    return True
+
+
 def _synthetic_destination(router, original: str) -> str:
     response = router.lan.address(timeout=5.0)
     values = _mapping(response.get("router"), "router_get_lan_ip.router")
@@ -161,12 +169,14 @@ def test_dmz_destination_write_and_recovery(router):
     backup = router.maintenance.download_config_backup(timeout=30.0)
     assert backup
 
-    restore_via_backup = not bool(original_destination.strip())
+    original_setter_restorable = _is_valid_ipv4(original_destination)
+    restore_via_backup = not original_setter_restorable
     backup_used = False
 
     print(
         "FIREWALL_DMZ_DESTINATION_PREP"
-        f" original_empty={restore_via_backup}"
+        f" original_setter_restorable={original_setter_restorable}"
+        f" backup_restore_required={restore_via_backup}"
         " backup_ready=True",
         flush=True,
     )
@@ -203,6 +213,7 @@ def test_dmz_destination_write_and_recovery(router):
                 flush=True,
             )
         else:
+            setter_restore_ok = False
             try:
                 router.firewall.set_dmz_destination(
                     original_destination, timeout=10.0
@@ -210,11 +221,20 @@ def test_dmz_destination_write_and_recovery(router):
                 router.firewall.set_dmz_enabled(
                     bool(original["dmz_enabled"]), timeout=10.0
                 )
-                print(
-                    "FIREWALL_DMZ_DESTINATION_RESTORE method=setter",
-                    flush=True,
+                restored = _snapshot_with_recovery(router)
+                setter_restore_ok = (
+                    restored["dmz_destination"] == original_destination
+                    and restored["dmz_enabled"] == original["dmz_enabled"]
                 )
             except NR2301Error:
+                setter_restore_ok = False
+
+            if setter_restore_ok:
+                print(
+                    "FIREWALL_DMZ_DESTINATION_RESTORE method=setter readback=True",
+                    flush=True,
+                )
+            else:
                 result = router.maintenance.restore_config_backup(
                     backup,
                     action_timeout=30.0,
