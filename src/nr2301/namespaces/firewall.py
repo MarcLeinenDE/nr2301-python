@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
@@ -270,18 +271,26 @@ class FirewallNamespace:
     def set_dmz_destination(
         self, destination: str, *, timeout: float | None = None
     ) -> dict[str, Any]:
-        """Write a non-empty DMZ destination.
+        """Write a verified IPv4 DMZ destination.
 
         Empty-string clear/delete is deliberately rejected because no such
-        NR2301 WebUI contract has been verified.
+        NR2301 WebUI contract has been verified. Raw getter values are not
+        guaranteed to be IPv4 addresses and must not be replayed blindly.
         """
 
-        if not destination.strip():
+        text = destination.strip()
+        if not text:
             raise ValueError("DMZ destination clear/delete is not a verified contract")
+        try:
+            normalized = str(ipaddress.IPv4Address(text))
+        except ipaddress.AddressValueError as exc:
+            raise ValueError(
+                "DMZ destination must be a syntactically valid IPv4 address"
+            ) from exc
         return self._client.call(
             "firewall",
             "fw_edit_dmz_entry",
-            data={"dmz_dest_ip": destination},
+            data={"dmz_dest_ip": normalized},
             timeout=timeout,
         )
 
